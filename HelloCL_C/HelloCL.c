@@ -162,7 +162,7 @@ int main(void) {
     cl_build_status buildStatus;
     char *buildLog;
     size_t buildLogSize;
-    checkCL(clGetProgramBuildInfo(program, myDevice, CL_PROGRAM_BUILD_STATUS, 0, &buildStatus, NULL));
+    checkCL(clGetProgramBuildInfo(program, myDevice, CL_PROGRAM_BUILD_STATUS, sizeof(buildStatus), &buildStatus, NULL));
     if(buildStatus != CL_BUILD_SUCCESS)
     {
         printf("Problem: %i\n", buildStatus);
