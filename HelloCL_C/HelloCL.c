@@ -144,10 +144,13 @@ int main(void) {
     // Create memory buffers on the device for each vector 
     cl_mem deviceA = clCreateBuffer(context, CL_MEM_READ_ONLY, 
             LIST_SIZE * sizeof(int), NULL, &error);
+    checkCL(error);
     cl_mem deviceB = clCreateBuffer(context, CL_MEM_READ_ONLY,
             LIST_SIZE * sizeof(int), NULL, &error);
+    checkCL(error);
     cl_mem deviceC = clCreateBuffer(context, CL_MEM_WRITE_ONLY, 
             LIST_SIZE * sizeof(int), NULL, &error);
+    checkCL(error);
  
     // Copy the lists A and B to their respective memory buffers
     // copy operation is blocking, without offset and doesn't depend on Events
