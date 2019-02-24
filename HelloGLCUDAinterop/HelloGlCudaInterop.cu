@@ -22,10 +22,10 @@ inline void checkCuda(cudaError_t result)
 ///////////////////////////////////////////////////////////////////////////////
 // CUDA Kernel for uniform image:
 
-__global__ void myKernel(float *renderImageData, int width, int height)
+__global__ void myKernel(float *renderImageData, size_t size)
 {
   for (int i = blockIdx.x * blockDim.x + threadIdx.x;
-         i < width*height;
+         i < size;
          i += blockDim.x * gridDim.x) 
       {
           renderImageData[i] = 1.0f;
@@ -220,19 +220,27 @@ int main(void)
   printf("Real Interop Starts\n");
   GLuint interopTexture;
   float *deviceRenderBuffer;
-  cudaGraphicsResource* textureGraphicResource;
-  cudaArray *textureCudaArray;
+  float *hostRenderBuffer;
+  cudaGraphicsResource *textureGraphicResource;
+  cudaArray_t textureCudaArray;
 
   //MemAlloc Cuda Buffer
   int numTexels = 2*2;
   int numValues = numTexels*4; // RGBA
   size_t sizeTexData = numValues * sizeof(GLfloat);
   
+  printf("HostMalloc\n");
+  hostRenderBuffer = (float*)malloc(sizeTexData);
   printf("CudaMalloc\n");
   checkCuda( cudaMalloc(&deviceRenderBuffer, sizeTexData) );
   // Here the Calculations for the interop-Data
   printf("Kernel starts\n");
-  myKernel<<<1,1>>>(deviceRenderBuffer, 2, 2);
+  myKernel<<<1,1>>>(deviceRenderBuffer, sizeTexData);
+  cudaMemcpy(hostRenderBuffer, deviceRenderBuffer, sizeTexData, cudaMemcpyDeviceToHost);
+  for (size_t i = 0; i < numValues; i++ )
+  {
+    printf("%f\n",hostRenderBuffer[i]);
+  }
 
   glGenTextures(1, &interopTexture);
   glBindTexture(GL_TEXTURE_2D, interopTexture);
@@ -243,26 +251,33 @@ int main(void)
   // Just allocate, but no copy to it:
   glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, 2, 2, 0, GL_RGB, GL_FLOAT, NULL);
 
-  printf("GLRegister\n");
   // Register Resource to texture
+  printf("GLRegister\n");
   checkCuda( cudaGraphicsGLRegisterImage( &textureGraphicResource, interopTexture, GL_TEXTURE_2D, cudaGraphicsRegisterFlagsWriteDiscard));
 
   // The next lines should go to Render-Loop:
   // Map: now just changing inside Default Stream 0
   printf("Mapping\n");
   cudaDeviceSynchronize();
-  checkCuda( cudaGraphicsMapResources(1, &textureGraphicResource, 0) );
+  checkCuda( cudaGraphicsMapResources(1, &textureGraphicResource) );
   // get the corresponding CudaArray of Resource at array position 0 and mipmap level 0
   printf("get Mapped Array\n");
   checkCuda( cudaGraphicsSubResourceGetMappedArray(&textureCudaArray, textureGraphicResource, 0, 0) );
   // copy Data to CudaArray from deviceRenderBuffer, wOffset=0, hOffset=0
+  
+  // Test:
+  checkCuda( cudaMemcpyFromArray(hostRenderBuffer, textureCudaArray, 0, 0, sizeTexData, cudaMemcpyDeviceToHost) );
+  for (size_t i = 0; i < numValues; i++ )
+  {
+    printf("%f\n",hostRenderBuffer[i]);
+  }
+
   printf("MemCopy to Array\n");
-  cudaDeviceSynchronize();
-  checkCuda( cudaMemcpyToArray(textureCudaArray, 0, 0, deviceRenderBuffer, sizeTexData, cudaMemcpyDeviceToDevice) );
+  checkCuda( cudaMemcpyToArray(textureCudaArray, 0, 0, (void*)deviceRenderBuffer, sizeTexData, cudaMemcpyDeviceToDevice) );
   // Unmap the resource from Stream 0
   cudaDeviceSynchronize();
   printf("Unmapping\n");
-  checkCuda( cudaGraphicsUnmapResources(1, &textureGraphicResource, 0) );
+  checkCuda( cudaGraphicsUnmapResources(1, &textureGraphicResource) );
 
 ///////////////////////////////////////////////////////////////////////////////
 // Render Loop
@@ -273,7 +288,7 @@ int main(void)
     glClear(GL_COLOR_BUFFER_BIT);
 
     // Set Up Texture
-    glBindTexture(GL_TEXTURE_2D, texture);
+    glBindTexture(GL_TEXTURE_2D, interopTexture);
 
     // Draw 
     glUseProgram(shaderProgram);
