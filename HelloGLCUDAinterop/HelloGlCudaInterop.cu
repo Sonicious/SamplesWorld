@@ -102,7 +102,7 @@ int main(void)
   glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 3);
   glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
   // Create a windowed mode window and its OpenGL context
-  GLFWwindow* window = glfwCreateWindow(640, 480, "Hello World", NULL, NULL);
+  GLFWwindow* window = glfwCreateWindow(640, 480, "Hello Cuda GLFW Interop", NULL, NULL);
   if (!window)
   {
     printf("Failed to create GLFW window!");
@@ -226,14 +226,29 @@ int main(void)
 
 ///////////////////////////////////////////////////////////////////////////////
 // Render Loop
+  double lastTime = glfwGetTime();
+  int nbFrames = 0;
+  char windowTitle[100];
+
   while (!glfwWindowShouldClose(window))
   {
+    // Measure speed
+    double currentTime = glfwGetTime();
+    nbFrames++;
+    if ( currentTime - lastTime >= 1.0 ){ // If last prinf() was more than 1 sec ago
+        // printf and reset timer
+        sprintf(windowTitle, "Hello Cuda GLFW Interop | %f ms/frame", 1000.0/double(nbFrames));
+        glfwSetWindowTitle(window, windowTitle);
+        nbFrames = 0;
+        lastTime += 1.0;
+    }
+
     // set bg color here via Clearing
     glClearColor(0.2f, 0.3f, 0.3f, 1.0f);
     glClear(GL_COLOR_BUFFER_BIT);
 
     // run CUDA and copy to 
-    myKernel<<<1,16>>>(deviceRenderBuffer, sizeTexData);
+    myKernel<<<1,32>>>(deviceRenderBuffer, sizeTexData);
     // Map: now just changing inside Default Stream 0
     checkCuda( cudaGraphicsMapResources(1, &textureGraphicResource) );
     // get the corresponding CudaArray of Resource at array position 0 and mipmap level 0
@@ -260,9 +275,8 @@ int main(void)
     glfwPollEvents();
   }
 
-  // gl clear commands here!
-
-  // Some more Cleanup Probably of CUDA stuff
+  // Cleanup
+  // OpenGL is reference counted and terminated by GLFW
   checkCuda( cudaGraphicsUnregisterResource(textureGraphicResource) );
   checkCuda( cudaFree(deviceRenderBuffer) );
   glfwDestroyWindow(window);
