@@ -22,13 +22,13 @@ inline void checkCuda(cudaError_t result)
 ///////////////////////////////////////////////////////////////////////////////
 // CUDA Kernel for uniform image:
 
-__global__ void myKernel(float *renderImageData, size_t size)
+__global__ void myKernel(unsigned char *renderImageData, size_t size)
 {
   for (int i = blockIdx.x * blockDim.x + threadIdx.x;
          i < size;
          i += blockDim.x * gridDim.x) 
       {
-          renderImageData[i] = 1.0f;
+          renderImageData[i] = 255;
       }
 }
 
@@ -115,6 +115,12 @@ int main(void)
   glfwSetFramebufferSizeCallback(window, framebuffer_size_callback);
 
 ///////////////////////////////////////////////////////////////////////////////
+// Create a state driven VAO
+  GLuint VAO;
+  glGenVertexArrays(1, &VAO);
+  glBindVertexArray(VAO); // Bind Vertex Array First
+
+///////////////////////////////////////////////////////////////////////////////
 // Create Shader Program:
   
   // Create vertex shader and load and compile source
@@ -153,8 +159,7 @@ int main(void)
       glGetProgramInfoLog(shaderProgram, 512, NULL, infoLog);
       printf("Program Linking Failed:\n%s\n",infoLog);
   }
-  // Use the program for the pipeline
-  glUseProgram(shaderProgram);
+
   // delete Shaders (not needed anymore)
   glDeleteShader(vertexShader);
   glDeleteShader(fragmentShader);
@@ -171,9 +176,7 @@ int main(void)
   };
 
   // generate buffer and Array for vertices and bind and fill it
-  GLuint VBO, VAO;// Vertex Buffer Object, Vertex Array Object
-  glGenVertexArrays(1, &VAO);
-  glBindVertexArray(VAO); // Bind Vertex Array First
+  GLuint VBO;// Vertex Buffer Object, Vertex Array Object
   glGenBuffers(1, &VBO);
   glBindBuffer(GL_ARRAY_BUFFER, VBO);
   // Copy Vertices Data
@@ -195,52 +198,20 @@ int main(void)
   //glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
 
 ///////////////////////////////////////////////////////////////////////////////
-// Texture stuff
-
-  // Black/white checkerboard
-  float pixels[] = {
-      1.0f, 1.0f, 1.0f,   0.0f, 0.0f, 0.0f,
-      0.0f, 0.0f, 0.0f,   1.0f, 1.0f, 1.0f
-  };
-
-  GLuint texture;
-  glGenTextures(1, &texture);
-  glBindTexture(GL_TEXTURE_2D, texture);
-  // set the texture wrapping/filtering options (on the currently bound texture object)
-  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_BORDER);	
-  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_BORDER);
-  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
-  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
-  glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, 2, 2, 0, GL_RGB, GL_FLOAT, pixels);
-  glBindTexture(GL_TEXTURE_2D, 0);
-
-///////////////////////////////////////////////////////////////////////////////
 // CUDA Texture stuff!
 
-  printf("Real Interop Starts\n");
   GLuint interopTexture;
-  float *deviceRenderBuffer;
-  float *hostRenderBuffer;
+  unsigned char *deviceRenderBuffer;
   cudaGraphicsResource *textureGraphicResource;
-  cudaArray_t textureCudaArray;
+  cudaArray *textureCudaArray;
 
   //MemAlloc Cuda Buffer
   int numTexels = 2*2;
   int numValues = numTexels*4; // RGBA
-  size_t sizeTexData = numValues * sizeof(GLfloat);
+  size_t sizeTexData = numValues * sizeof(GLubyte);
   
-  printf("HostMalloc\n");
-  hostRenderBuffer = (float*)malloc(sizeTexData);
-  printf("CudaMalloc\n");
   checkCuda( cudaMalloc(&deviceRenderBuffer, sizeTexData) );
   // Here the Calculations for the interop-Data
-  printf("Kernel starts\n");
-  myKernel<<<1,1>>>(deviceRenderBuffer, sizeTexData);
-  cudaMemcpy(hostRenderBuffer, deviceRenderBuffer, sizeTexData, cudaMemcpyDeviceToHost);
-  for (size_t i = 0; i < numValues; i++ )
-  {
-    printf("%f\n",hostRenderBuffer[i]);
-  }
 
   glGenTextures(1, &interopTexture);
   glBindTexture(GL_TEXTURE_2D, interopTexture);
@@ -249,35 +220,9 @@ int main(void)
   glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
   glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
   // Just allocate, but no copy to it:
-  glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, 2, 2, 0, GL_RGB, GL_FLOAT, NULL);
-
+  glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, 2, 2, 0, GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
   // Register Resource to texture
-  printf("GLRegister\n");
-  checkCuda( cudaGraphicsGLRegisterImage( &textureGraphicResource, interopTexture, GL_TEXTURE_2D, cudaGraphicsRegisterFlagsWriteDiscard));
-
-  // The next lines should go to Render-Loop:
-  // Map: now just changing inside Default Stream 0
-  printf("Mapping\n");
-  cudaDeviceSynchronize();
-  checkCuda( cudaGraphicsMapResources(1, &textureGraphicResource) );
-  // get the corresponding CudaArray of Resource at array position 0 and mipmap level 0
-  printf("get Mapped Array\n");
-  checkCuda( cudaGraphicsSubResourceGetMappedArray(&textureCudaArray, textureGraphicResource, 0, 0) );
-  // copy Data to CudaArray from deviceRenderBuffer, wOffset=0, hOffset=0
-  
-  // Test:
-  checkCuda( cudaMemcpyFromArray(hostRenderBuffer, textureCudaArray, 0, 0, sizeTexData, cudaMemcpyDeviceToHost) );
-  for (size_t i = 0; i < numValues; i++ )
-  {
-    printf("%f\n",hostRenderBuffer[i]);
-  }
-
-  printf("MemCopy to Array\n");
-  checkCuda( cudaMemcpyToArray(textureCudaArray, 0, 0, (void*)deviceRenderBuffer, sizeTexData, cudaMemcpyDeviceToDevice) );
-  // Unmap the resource from Stream 0
-  cudaDeviceSynchronize();
-  printf("Unmapping\n");
-  checkCuda( cudaGraphicsUnmapResources(1, &textureGraphicResource) );
+  checkCuda( cudaGraphicsGLRegisterImage( &textureGraphicResource, interopTexture, GL_TEXTURE_2D, cudaGraphicsRegisterFlagsNone));
 
 ///////////////////////////////////////////////////////////////////////////////
 // Render Loop
@@ -287,25 +232,39 @@ int main(void)
     glClearColor(0.2f, 0.3f, 0.3f, 1.0f);
     glClear(GL_COLOR_BUFFER_BIT);
 
-    // Set Up Texture
-    glBindTexture(GL_TEXTURE_2D, interopTexture);
+    // run CUDA and copy to 
+    myKernel<<<1,16>>>(deviceRenderBuffer, sizeTexData);
+    // Map: now just changing inside Default Stream 0
+    checkCuda( cudaGraphicsMapResources(1, &textureGraphicResource) );
+    // get the corresponding CudaArray of Resource at array position 0 and mipmap level 0
+    checkCuda( cudaGraphicsSubResourceGetMappedArray(&textureCudaArray, textureGraphicResource, 0, 0) );
+    // copy Data to CudaArray from deviceRenderBuffer, wOffset=0, hOffset=0
+    checkCuda( cudaMemcpyToArray(textureCudaArray, 0, 0, deviceRenderBuffer, sizeTexData, cudaMemcpyDeviceToDevice) );
+    // Unmap the resource from Stream 0
+    checkCuda( cudaGraphicsUnmapResources(1, &textureGraphicResource) );
 
-    // Draw 
+    // Draw
+    // Use the program for the pipeline (keep it to save state to VAO)
     glUseProgram(shaderProgram);
-    glBindVertexArray(VAO);
+    glBindVertexArray(VAO); // Program is bound to VAO
     glDrawArrays(GL_TRIANGLE_STRIP, 0, 4); // All about the loaded VAO
-    // glBindVertexArray(0); // To unbind Vertex Array
+    glBindVertexArray(0); // To unbind Vertex Array
+    glUseProgram(0);
 
     // Swap front and back buffers
     glfwSwapBuffers(window);
 
-    // CHeck for Inputs:
+    // Check for Inputs:
     processInput(window);
     // Poll for and process events
     glfwPollEvents();
   }
 
+  // gl clear commands here!
+
   // Some more Cleanup Probably of CUDA stuff
+  checkCuda( cudaGraphicsUnregisterResource(textureGraphicResource) );
+  checkCuda( cudaFree(deviceRenderBuffer) );
   glfwDestroyWindow(window);
   glfwTerminate();
   return EXIT_SUCCESS;
