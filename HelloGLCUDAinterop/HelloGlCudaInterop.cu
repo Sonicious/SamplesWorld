@@ -33,7 +33,7 @@ typedef struct {
 ///////////////////////////////////////////////////////////////////////////////
 // CUDA Kernel for image:
 
-__global__ void myTextureKernel(unsigned char *renderImageData, size_t width, size_t height, size_t pitch)
+__global__ void myTextureKernel(pixelRGBA *renderImageData, size_t width, size_t height, size_t pitch)
 {
   for (int idy = blockIdx.y * blockDim.y + threadIdx.y;
          idy < height;
@@ -43,14 +43,14 @@ __global__ void myTextureKernel(unsigned char *renderImageData, size_t width, si
                idx < width;
                idx += blockDim.x * gridDim.x) 
             {
-                renderImageData[idx*4+idy*pitch] = 255;
-                //renderImageData[idx+idy*pitch].g = 255;
-                //renderImageData[idx+idy*pitch].b = 255;
-                //renderImageData[idx+idy*pitch].a = 255;
-                printf("id: x:%i,y:%i\t",idx,idy);
+                // according to CUDA documentation (see cudaMallocPitch())
+                pixelRGBA *myPixel = (pixelRGBA*) ((char*)renderImageData + idy*pitch) + idx;
+                myPixel->r = 255;
+                myPixel->g = 255;
+                myPixel->b = 255;
+                myPixel->a = 255;
             }
       }
-  printf("\n");
 }
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -225,21 +225,16 @@ int main(void)
 // CUDA Texture Interaction
 
   GLuint interopTexture;
-  unsigned char *deviceTextureGraphic;
+  pixelRGBA *deviceTextureGraphic;
   size_t deviceTextureGraphicPitch;
   cudaGraphicsResource *textureGraphicResource;
   cudaArray *textureCudaArray;
 
 
   // calculate Data size and MemAlloc Cuda Buffer
-  size_t textureWidth = 2;
-  size_t textureHeight = 2;
-  //int numTexels = textureHeight * textureWidth;
-  //int numValues = numTexels*4; // RGBA
-  //size_t sizeTexData = numValues * sizeof(GLubyte);
-  checkCuda( cudaMallocPitch(&deviceTextureGraphic, &deviceTextureGraphicPitch, textureWidth * 4, textureHeight) );
-  printf("[LOG] Allocated Texture Memory: %zu x %zu with pitch: %zu\n", textureWidth, textureHeight, deviceTextureGraphicPitch);
-  printf("[LOG] size of pixelRGBA: %zu\n", sizeof(pixelRGBA));
+  size_t textureWidth = 128;
+  size_t textureHeight = 128;
+  checkCuda( cudaMallocPitch(&deviceTextureGraphic, &deviceTextureGraphicPitch, textureWidth * sizeof(pixelRGBA), textureHeight) );
   
   // Here the Calculations for the interop-Data
   glGenTextures(1, &interopTexture);
@@ -277,14 +272,16 @@ int main(void)
     glClear(GL_COLOR_BUFFER_BIT);
 
     // run CUDA
-    myTextureKernel<<<1, 1>>>(deviceTextureGraphic, textureWidth, textureHeight, deviceTextureGraphicPitch);
+    dim3 gridSize(8,8);
+    dim3 blockSize(8,8);
+    myTextureKernel<<<gridSize, blockSize>>>(deviceTextureGraphic, textureWidth, textureHeight, deviceTextureGraphicPitch);
     // Map 1 graphics resource for access by CUDA in stream 0
     checkCuda( cudaGraphicsMapResources(1, &textureGraphicResource, 0) );
     // get the corresponding CudaArray of Resource at array position 0 and mipmap level 0
     checkCuda( cudaGraphicsSubResourceGetMappedArray(&textureCudaArray, textureGraphicResource, 0, 0) );
     // copy Data to CudaArray from deviceRenderBuffer, wOffset=0, hOffset=0
     //checkCuda( cudaMemcpyToArray(textureCudaArray, 0, 0, deviceRenderBuffer, sizeTexData, cudaMemcpyDeviceToDevice) ); // deprecated
-    checkCuda( cudaMemcpy2DToArray(textureCudaArray, 0, 0, deviceTextureGraphic, deviceTextureGraphicPitch, textureWidth*4, textureHeight, cudaMemcpyDeviceToDevice));
+    checkCuda( cudaMemcpy2DToArray(textureCudaArray, 0, 0, deviceTextureGraphic, deviceTextureGraphicPitch, textureWidth * sizeof(pixelRGBA), textureHeight, cudaMemcpyDeviceToDevice));
     // Unmap 1 resource from Stream 0
     checkCuda( cudaGraphicsUnmapResources(1, &textureGraphicResource, 0) );
 
