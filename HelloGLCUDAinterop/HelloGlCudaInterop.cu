@@ -23,12 +23,12 @@ inline void checkCuda(cudaError_t result)
     }
 }
 
-/*typedef struct {
+typedef struct {
   unsigned char r;
   unsigned char g;
   unsigned char b;
   unsigned char a;
-} pixelRGBA;*/
+} pixelRGBA;
 
 ///////////////////////////////////////////////////////////////////////////////
 // CUDA Kernel for image:
@@ -239,6 +239,7 @@ int main(void)
   //size_t sizeTexData = numValues * sizeof(GLubyte);
   checkCuda( cudaMallocPitch(&deviceTextureGraphic, &deviceTextureGraphicPitch, textureWidth * 4, textureHeight) );
   printf("[LOG] Allocated Texture Memory: %zu x %zu with pitch: %zu\n", textureWidth, textureHeight, deviceTextureGraphicPitch);
+  printf("[LOG] size of pixelRGBA: %zu\n", sizeof(pixelRGBA));
   
   // Here the Calculations for the interop-Data
   glGenTextures(1, &interopTexture);
