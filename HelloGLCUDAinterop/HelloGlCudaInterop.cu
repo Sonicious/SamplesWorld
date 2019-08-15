@@ -10,6 +10,10 @@
 #include <cuda_runtime_api.h>
 #include <cuda_gl_interop.h>
 
+// GL Defines for stuff
+#define GL_VERTEX_POSITION_ATTRIBUTE 0
+#define GL_VERTEX_TEXTURE_COORD_ATTRIBUTE 1
+
 inline void checkCuda(cudaError_t result)
 {
     if (result != cudaSuccess)
@@ -20,7 +24,7 @@ inline void checkCuda(cudaError_t result)
 }
 
 ///////////////////////////////////////////////////////////////////////////////
-// CUDA Kernel for uniform image:
+// CUDA Kernel for image:
 
 __global__ void myKernel(unsigned char *renderImageData, size_t size)
 {
@@ -28,7 +32,7 @@ __global__ void myKernel(unsigned char *renderImageData, size_t size)
          i < size;
          i += blockDim.x * gridDim.x) 
       {
-          renderImageData[i] = 255;
+          renderImageData[i] = (i/4) % 255;
       }
 }
 
@@ -160,7 +164,7 @@ int main(void)
       printf("Program Linking Failed:\n%s\n",infoLog);
   }
 
-  // delete Shaders (not needed anymore)
+  // delete Shaders (not needed anymore, because completely compiled and so on)
   glDeleteShader(vertexShader);
   glDeleteShader(fragmentShader);
 
@@ -168,7 +172,7 @@ int main(void)
 // Setup Vertex Data, Buffers and configure Vertex Attributes:
 
   float vertices[] = {
-   // positions        // text-coords
+   // pos (x,y,z)      // text-coords (u,v)
    -1.0f, -1.0f, 0.0f, 0.0f, 0.0f, // SW
     1.0f, -1.0f, 0.0f, 1.0f, 0.0f, // SE
    -1.0f,  1.0f, 0.0f, 0.0f, 1.0f, // NW
@@ -181,14 +185,14 @@ int main(void)
   glBindBuffer(GL_ARRAY_BUFFER, VBO);
   // Copy Vertices Data
   glBufferData(GL_ARRAY_BUFFER, sizeof(vertices), vertices, GL_STATIC_DRAW);
-  // Explain Data via VertexAttributePointers
-  glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 5 * sizeof(float), (GLvoid*)0);
+  // Explain Data via VertexAttributePointers to the shader
   // By Default, it's disabled
   // Enable the Vertex Attribute
-  glEnableVertexAttribArray(0);
+  glEnableVertexAttribArray(GL_VERTEX_POSITION_ATTRIBUTE);
+  glVertexAttribPointer(GL_VERTEX_POSITION_ATTRIBUTE, 3, GL_FLOAT, GL_FALSE, 5 * sizeof(float), (GLvoid*)0);
   // Same for Texture: Pay Attention of Stride and begin
-  glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 5 * sizeof(float), (GLvoid*)(3 * sizeof(float)));
-  glEnableVertexAttribArray(1);
+  glEnableVertexAttribArray(GL_VERTEX_TEXTURE_COORD_ATTRIBUTE);
+  glVertexAttribPointer(GL_VERTEX_TEXTURE_COORD_ATTRIBUTE, 2, GL_FLOAT, GL_FALSE, 5 * sizeof(float), (GLvoid*)(3 * sizeof(float)));
 
   // possible unbinding:
   glBindBuffer(GL_ARRAY_BUFFER, 0);
@@ -198,21 +202,23 @@ int main(void)
   //glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
 
 ///////////////////////////////////////////////////////////////////////////////
-// CUDA Texture stuff!
+// CUDA Texture Interaction
 
   GLuint interopTexture;
   unsigned char *deviceRenderBuffer;
   cudaGraphicsResource *textureGraphicResource;
   cudaArray *textureCudaArray;
 
-  //MemAlloc Cuda Buffer
-  int numTexels = 2*2;
+
+  // calculate Data size and MemAlloc Cuda Buffer
+  int textureWidth = 16;
+  int textureHeight = 16;
+  int numTexels = textureHeight * textureWidth;
   int numValues = numTexels*4; // RGBA
   size_t sizeTexData = numValues * sizeof(GLubyte);
-  
   checkCuda( cudaMalloc(&deviceRenderBuffer, sizeTexData) );
+  
   // Here the Calculations for the interop-Data
-
   glGenTextures(1, &interopTexture);
   glBindTexture(GL_TEXTURE_2D, interopTexture);
   glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_BORDER);	
@@ -220,9 +226,9 @@ int main(void)
   glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
   glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
   // Just allocate, but no copy to it:
-  glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, 2, 2, 0, GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
+  glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, textureWidth, textureHeight, 0, GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
   // Register Resource to texture
-  checkCuda( cudaGraphicsGLRegisterImage( &textureGraphicResource, interopTexture, GL_TEXTURE_2D, cudaGraphicsRegisterFlagsNone));
+  checkCuda( cudaGraphicsGLRegisterImage( &textureGraphicResource, interopTexture, GL_TEXTURE_2D, cudaGraphicsRegisterFlagsWriteDiscard));
 
 ///////////////////////////////////////////////////////////////////////////////
 // Render Loop
@@ -244,19 +250,20 @@ int main(void)
     }
 
     // set bg color here via Clearing
-    glClearColor(0.2f, 0.3f, 0.3f, 1.0f);
+    glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
     glClear(GL_COLOR_BUFFER_BIT);
 
-    // run CUDA and copy to 
-    myKernel<<<1,32>>>(deviceRenderBuffer, sizeTexData);
-    // Map: now just changing inside Default Stream 0
-    checkCuda( cudaGraphicsMapResources(1, &textureGraphicResource) );
+    // run CUDA
+    myKernel<<<2, 2>>>(deviceRenderBuffer, sizeTexData);
+    // Map graphics resource for access by CUDA
+    checkCuda( cudaGraphicsMapResources(1, &textureGraphicResource, 0) );
     // get the corresponding CudaArray of Resource at array position 0 and mipmap level 0
     checkCuda( cudaGraphicsSubResourceGetMappedArray(&textureCudaArray, textureGraphicResource, 0, 0) );
     // copy Data to CudaArray from deviceRenderBuffer, wOffset=0, hOffset=0
-    checkCuda( cudaMemcpyToArray(textureCudaArray, 0, 0, deviceRenderBuffer, sizeTexData, cudaMemcpyDeviceToDevice) );
+    //checkCuda( cudaMemcpyToArray(textureCudaArray, 0, 0, deviceRenderBuffer, sizeTexData, cudaMemcpyDeviceToDevice) );
+    checkCuda( cudaMemcpy2DToArray(textureCudaArray, 0, 0, deviceRenderBuffer, textureWidth*4, textureWidth*4, textureHeight, cudaMemcpyDeviceToDevice));
     // Unmap the resource from Stream 0
-    checkCuda( cudaGraphicsUnmapResources(1, &textureGraphicResource) );
+    checkCuda( cudaGraphicsUnmapResources(1, &textureGraphicResource, 0) );
 
     // Draw
     // Use the program for the pipeline (keep it to save state to VAO)
