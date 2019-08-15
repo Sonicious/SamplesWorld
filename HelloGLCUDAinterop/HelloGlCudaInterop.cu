@@ -23,17 +23,34 @@ inline void checkCuda(cudaError_t result)
     }
 }
 
+/*typedef struct {
+  unsigned char r;
+  unsigned char g;
+  unsigned char b;
+  unsigned char a;
+} pixelRGBA;*/
+
 ///////////////////////////////////////////////////////////////////////////////
 // CUDA Kernel for image:
 
-__global__ void myKernel(unsigned char *renderImageData, size_t size)
+__global__ void myTextureKernel(unsigned char *renderImageData, size_t width, size_t height, size_t pitch)
 {
-  for (int i = blockIdx.x * blockDim.x + threadIdx.x;
-         i < size;
-         i += blockDim.x * gridDim.x) 
+  for (int idy = blockIdx.y * blockDim.y + threadIdx.y;
+         idy < height;
+         idy += blockDim.y * gridDim.y)
       {
-          renderImageData[i] = (i/4) % 255;
+        for (int idx = blockIdx.x * blockDim.x + threadIdx.x;
+               idx < width;
+               idx += blockDim.x * gridDim.x) 
+            {
+                renderImageData[idx*4+idy*pitch] = 255;
+                //renderImageData[idx+idy*pitch].g = 255;
+                //renderImageData[idx+idy*pitch].b = 255;
+                //renderImageData[idx+idy*pitch].a = 255;
+                printf("id: x:%i,y:%i\t",idx,idy);
+            }
       }
+  printf("\n");
 }
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -137,7 +154,8 @@ int main(void)
   if(!success)
   {
     glGetShaderInfoLog(vertexShader, 512, NULL, infoLog);
-    //printf("Vertex Shader Compilation Failed:\n%s\n",infoLog);
+    printf("Vertex Shader Compilation Failed:\n%s\n",infoLog);
+    return EXIT_FAILURE;
   }
   // Create fragment shader, load and compile
   GLuint fragmentShader;
@@ -150,6 +168,7 @@ int main(void)
   {
     glGetShaderInfoLog(vertexShader, 512, NULL, infoLog);
     printf("Fragment Shader Compilation Failed:\n%s\n",infoLog);
+    return EXIT_FAILURE;
   }
   // Link Shaders together to a program
   GLuint shaderProgram;
@@ -162,6 +181,7 @@ int main(void)
   {
       glGetProgramInfoLog(shaderProgram, 512, NULL, infoLog);
       printf("Program Linking Failed:\n%s\n",infoLog);
+      return EXIT_FAILURE;
   }
 
   // delete Shaders (not needed anymore, because completely compiled and so on)
@@ -205,18 +225,20 @@ int main(void)
 // CUDA Texture Interaction
 
   GLuint interopTexture;
-  unsigned char *deviceRenderBuffer;
+  unsigned char *deviceTextureGraphic;
+  size_t deviceTextureGraphicPitch;
   cudaGraphicsResource *textureGraphicResource;
   cudaArray *textureCudaArray;
 
 
   // calculate Data size and MemAlloc Cuda Buffer
-  int textureWidth = 16;
-  int textureHeight = 16;
-  int numTexels = textureHeight * textureWidth;
-  int numValues = numTexels*4; // RGBA
-  size_t sizeTexData = numValues * sizeof(GLubyte);
-  checkCuda( cudaMalloc(&deviceRenderBuffer, sizeTexData) );
+  size_t textureWidth = 2;
+  size_t textureHeight = 2;
+  //int numTexels = textureHeight * textureWidth;
+  //int numValues = numTexels*4; // RGBA
+  //size_t sizeTexData = numValues * sizeof(GLubyte);
+  checkCuda( cudaMallocPitch(&deviceTextureGraphic, &deviceTextureGraphicPitch, textureWidth * 4, textureHeight) );
+  printf("[LOG] Allocated Texture Memory: %zu x %zu with pitch: %zu\n", textureWidth, textureHeight, deviceTextureGraphicPitch);
   
   // Here the Calculations for the interop-Data
   glGenTextures(1, &interopTexture);
@@ -227,7 +249,7 @@ int main(void)
   glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
   // Just allocate, but no copy to it:
   glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, textureWidth, textureHeight, 0, GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
-  // Register Resource to texture
+  // Register OpenGL texture to a cudaGraphicsResource for CUDA
   checkCuda( cudaGraphicsGLRegisterImage( &textureGraphicResource, interopTexture, GL_TEXTURE_2D, cudaGraphicsRegisterFlagsWriteDiscard));
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -254,15 +276,15 @@ int main(void)
     glClear(GL_COLOR_BUFFER_BIT);
 
     // run CUDA
-    myKernel<<<2, 2>>>(deviceRenderBuffer, sizeTexData);
-    // Map graphics resource for access by CUDA
+    myTextureKernel<<<1, 1>>>(deviceTextureGraphic, textureWidth, textureHeight, deviceTextureGraphicPitch);
+    // Map 1 graphics resource for access by CUDA in stream 0
     checkCuda( cudaGraphicsMapResources(1, &textureGraphicResource, 0) );
     // get the corresponding CudaArray of Resource at array position 0 and mipmap level 0
     checkCuda( cudaGraphicsSubResourceGetMappedArray(&textureCudaArray, textureGraphicResource, 0, 0) );
     // copy Data to CudaArray from deviceRenderBuffer, wOffset=0, hOffset=0
-    //checkCuda( cudaMemcpyToArray(textureCudaArray, 0, 0, deviceRenderBuffer, sizeTexData, cudaMemcpyDeviceToDevice) );
-    checkCuda( cudaMemcpy2DToArray(textureCudaArray, 0, 0, deviceRenderBuffer, textureWidth*4, textureWidth*4, textureHeight, cudaMemcpyDeviceToDevice));
-    // Unmap the resource from Stream 0
+    //checkCuda( cudaMemcpyToArray(textureCudaArray, 0, 0, deviceRenderBuffer, sizeTexData, cudaMemcpyDeviceToDevice) ); // deprecated
+    checkCuda( cudaMemcpy2DToArray(textureCudaArray, 0, 0, deviceTextureGraphic, deviceTextureGraphicPitch, textureWidth*4, textureHeight, cudaMemcpyDeviceToDevice));
+    // Unmap 1 resource from Stream 0
     checkCuda( cudaGraphicsUnmapResources(1, &textureGraphicResource, 0) );
 
     // Draw
@@ -285,7 +307,7 @@ int main(void)
   // Cleanup
   // OpenGL is reference counted and terminated by GLFW
   checkCuda( cudaGraphicsUnregisterResource(textureGraphicResource) );
-  checkCuda( cudaFree(deviceRenderBuffer) );
+  checkCuda( cudaFree(deviceTextureGraphic) );
   glfwDestroyWindow(window);
   glfwTerminate();
   return EXIT_SUCCESS;
