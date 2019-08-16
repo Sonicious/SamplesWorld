@@ -14,6 +14,8 @@
 #define GL_VERTEX_POSITION_ATTRIBUTE 0
 #define GL_VERTEX_TEXTURE_COORD_ATTRIBUTE 1
 
+// TextureSize
+
 inline void checkCuda(cudaError_t result)
 {
     if (result != cudaSuccess)
@@ -103,8 +105,17 @@ void error_callback(int error, const char* description)
   printf("Error: %s\n", description);
 }
 
-int main(void)
+int main(int argc, char *argv[])
 {
+  // read TextureSize
+  size_t textureWidth = 128;
+  size_t textureHeight = 128;
+  if (argc >= 3)
+  {
+    textureWidth = atoi(argv[1]);
+    textureHeight = atoi(argv[2]);
+  }
+
   // OpenGL Status Variables:
   GLint  success;
   char infoLog[512];
@@ -123,7 +134,7 @@ int main(void)
   glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 3);
   glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
   // Create a windowed mode window and its OpenGL context
-  GLFWwindow* window = glfwCreateWindow(640, 480, "Hello Cuda GLFW Interop", NULL, NULL);
+  GLFWwindow* window = glfwCreateWindow(1000, 1000, "Hello Cuda GLFW Interop", NULL, NULL);
   if (!window)
   {
     printf("Failed to create GLFW window!");
@@ -232,8 +243,6 @@ int main(void)
 
 
   // calculate Data size and MemAlloc Cuda Buffer
-  size_t textureWidth = 128;
-  size_t textureHeight = 128;
   checkCuda( cudaMallocPitch(&deviceTextureGraphic, &deviceTextureGraphicPitch, textureWidth * sizeof(pixelRGBA), textureHeight) );
   
   // Here the Calculations for the interop-Data
@@ -272,15 +281,12 @@ int main(void)
     glClear(GL_COLOR_BUFFER_BIT);
 
     // run CUDA
-    dim3 gridSize(8,8);
-    dim3 blockSize(8,8);
-    myTextureKernel<<<gridSize, blockSize>>>(deviceTextureGraphic, textureWidth, textureHeight, deviceTextureGraphicPitch);
+    myTextureKernel<<<16, 32>>>(deviceTextureGraphic, textureWidth, textureHeight, deviceTextureGraphicPitch);
     // Map 1 graphics resource for access by CUDA in stream 0
     checkCuda( cudaGraphicsMapResources(1, &textureGraphicResource, 0) );
     // get the corresponding CudaArray of Resource at array position 0 and mipmap level 0
     checkCuda( cudaGraphicsSubResourceGetMappedArray(&textureCudaArray, textureGraphicResource, 0, 0) );
     // copy Data to CudaArray from deviceRenderBuffer, wOffset=0, hOffset=0
-    //checkCuda( cudaMemcpyToArray(textureCudaArray, 0, 0, deviceRenderBuffer, sizeTexData, cudaMemcpyDeviceToDevice) ); // deprecated
     checkCuda( cudaMemcpy2DToArray(textureCudaArray, 0, 0, deviceTextureGraphic, deviceTextureGraphicPitch, textureWidth * sizeof(pixelRGBA), textureHeight, cudaMemcpyDeviceToDevice));
     // Unmap 1 resource from Stream 0
     checkCuda( cudaGraphicsUnmapResources(1, &textureGraphicResource, 0) );
@@ -306,6 +312,7 @@ int main(void)
   // OpenGL is reference counted and terminated by GLFW
   checkCuda( cudaGraphicsUnregisterResource(textureGraphicResource) );
   checkCuda( cudaFree(deviceTextureGraphic) );
+  checkCuda( cudaDeviceReset() );
   glfwDestroyWindow(window);
   glfwTerminate();
   return EXIT_SUCCESS;
