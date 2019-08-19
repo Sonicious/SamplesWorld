@@ -14,16 +14,35 @@
 #define GL_VERTEX_POSITION_ATTRIBUTE 0
 #define GL_VERTEX_TEXTURE_COORD_ATTRIBUTE 1
 
-// TextureSize
-
-inline void checkCuda(cudaError_t result)
+void checkCuda(cudaError_t result)
 {
     if (result != cudaSuccess)
     {
         printf("[ERROR] %s\n", cudaGetErrorName(result));
         printf("[ERROR] %s\n", cudaGetErrorString(result));
+        exit(EXIT_FAILURE);
     }
 }
+
+void checkGL()
+{
+  GLenum error = glGetError();
+  if(error != GL_NO_ERROR)
+  {
+    printf("[ERROR] %d\n", error);
+    exit(EXIT_FAILURE);
+  }
+}
+
+void glfwErrorCallback(int error, const char* description)
+{
+  printf("Error: %s\n", description);
+}
+
+typedef struct {
+  GLfloat position[3];
+  GLfloat textureCoords[2];
+} VertexData;
 
 typedef struct {
   unsigned char r;
@@ -55,9 +74,6 @@ __global__ void myTextureKernel(pixelRGBA *renderImageData, size_t width, size_t
       }
 }
 
-///////////////////////////////////////////////////////////////////////////////
-// IO-Callbacks:
-
 // process all input: query GLFW whether relevant keys are pressed/released this frame and react accordingly
 // ---------------------------------------------------------------------------------------------------------
 void processInput(GLFWwindow *window)
@@ -68,7 +84,7 @@ void processInput(GLFWwindow *window)
 
 // glfw: whenever the window size changed (by OS or user resize) this callback function executes
 // ---------------------------------------------------------------------------------------------
-void framebuffer_size_callback(GLFWwindow* window, int width, int height)
+void FramebufferSizeCallback(GLFWwindow* window, int width, int height)
 {
     // make sure the viewport matches the new window dimensions; note that width and 
     // height will be significantly larger than specified on retina displays.
@@ -100,11 +116,6 @@ const GLchar *fragmentShaderSource = "#version 330 core\n"
   "   FragColor = texture(ourTexture, TexCoord);\n"
   "}\n\0";
 
-void error_callback(int error, const char* description)
-{
-  printf("Error: %s\n", description);
-}
-
 int main(int argc, char *argv[])
 {
   // read TextureSize
@@ -129,7 +140,7 @@ int main(int argc, char *argv[])
     return EXIT_FAILURE;
   }
   // Set Error Callback
-  glfwSetErrorCallback(error_callback);
+  glfwSetErrorCallback(glfwErrorCallback);
   glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3); // We want OpenGL 3.3
   glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 3);
   glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
@@ -144,7 +155,7 @@ int main(int argc, char *argv[])
   // Make the window's context current
   glfwMakeContextCurrent(window);
   // Manage Callbacks:
-  glfwSetFramebufferSizeCallback(window, framebuffer_size_callback);
+  glfwSetFramebufferSizeCallback(window, FramebufferSizeCallback);
 
 ///////////////////////////////////////////////////////////////////////////////
 // Create a state driven VAO
@@ -202,14 +213,12 @@ int main(int argc, char *argv[])
 ///////////////////////////////////////////////////////////////////////////////
 // Setup Vertex Data, Buffers and configure Vertex Attributes:
 
-  float vertices[] = {
-   // pos (x,y,z)      // text-coords (u,v)
-   -1.0f, -1.0f, 0.0f, 0.0f, 0.0f, // SW
-    1.0f, -1.0f, 0.0f, 1.0f, 0.0f, // SE
-   -1.0f,  1.0f, 0.0f, 0.0f, 1.0f, // NW
-    1.0f,  1.0f, 0.0f, 1.0f, 1.0f  // NE
+  VertexData vertices[] = {
+    {.position = {-1.0f, -1.0f, 0.0f}, .textureCoords = {0.0f, 0.0f}},
+    {.position = { 1.0f, -1.0f, 0.0f}, .textureCoords = {1.0f, 0.0f}},
+    {.position = {-1.0f,  1.0f, 0.0f}, .textureCoords = {0.0f, 1.0f}},
+    {.position = { 1.0f,  1.0f, 0.0f}, .textureCoords = {1.0f, 1.0f}}
   };
-
   // generate buffer and Array for vertices and bind and fill it
   GLuint VBO;// Vertex Buffer Object, Vertex Array Object
   glGenBuffers(1, &VBO);
@@ -294,7 +303,7 @@ int main(int argc, char *argv[])
     // Draw
     // Use the program for the pipeline (keep it to save state to VAO)
     glUseProgram(shaderProgram);
-    glBindVertexArray(VAO); // Program is bound to VAO
+    glBindVertexArray(VAO); checkGL(); // Program is bound to VAO
     glDrawArrays(GL_TRIANGLE_STRIP, 0, 4); // All about the loaded VAO
     glBindVertexArray(0); // To unbind Vertex Array
     glUseProgram(0);
