@@ -12,7 +12,12 @@
 
 // GL Defines for stuff
 #define GL_VERTEX_POSITION_ATTRIBUTE 0
-#define GL_VERTEX_TEXTURE_COORD_ATTRIBUTE 1
+#define GL_VERTEX_COLOR_ATTRIBUTE 1
+
+// speed controllers per second:
+#define PIF 3.141592654f
+#define SPINSPEED 1
+#define RADIUSSPEED 1
 
 void checkCuda(cudaError_t result)
 {
@@ -41,29 +46,38 @@ void glfwErrorCallback(int error, const char* description)
 
 typedef struct {
   GLfloat position[3];
-  GLfloat textureCoords[2];
+  GLfloat color[4];
 } VertexData;
 
 ///////////////////////////////////////////////////////////////////////////////
 // CUDA Kernel for image:
 
-__global__ void myTextureKernel(cudaSurfaceObject_t SurfObj, size_t width, size_t height)
+__global__ void myVerticePositionKernel(VertexData *vertices, double time)
 {
-  for (int idy = blockIdx.y * blockDim.y + threadIdx.y;
-         idy < height;
-         idy += blockDim.y * gridDim.y)
-      {
-        for (int idx = blockIdx.x * blockDim.x + threadIdx.x;
-               idx < width;
-               idx += blockDim.x * gridDim.x) 
-            {
-                uchar4 data = make_uchar4(255,255,255,255);
-                // Read from input surface
-                //surf2Dread(&data,  inputSurfObj, x * sizeof(uchar4), y);
-                // Write to output surface
-                surf2Dwrite(data, SurfObj, idx * sizeof(uchar4), idy);
-            }
-      }
+  for (
+    int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    idx < 3;
+    idx += blockDim.x * gridDim.x)
+    {
+      float radius = (1 + cosf(time * RADIUSSPEED)) / 3.0 + 1/3.0f;
+      vertices[idx].position[0] = radius * cosf(idx * 2 * PIF / 3.0 + time * SPINSPEED);
+      vertices[idx].position[1] = radius * sinf(idx * 2 * PIF / 3.0 + time * SPINSPEED);
+      vertices[idx].position[2] = 1.0f;
+    } 
+}
+
+__global__ void myVerticeColorKernel(VertexData *vertices, double time)
+{
+  for (
+    int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    idx < 3;
+    idx += blockDim.x * gridDim.x)
+    {
+      vertices[idx].color[0] = (1 + cosf(idx * 2 * PIF / 3.0 + time * 1)) / 2.0;
+      vertices[idx].color[1] = (1 + sinf(idx * 2 * PIF / 3.0 + time * 2)) / 2.0;
+      vertices[idx].color[2] = (1 + cosf(idx * 2 * PIF / 3.0 + time * 3)) / 2.0;
+      vertices[idx].color[3] = 1.0f;
+    } 
 }
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -90,36 +104,31 @@ void framebufferSizeCallback(GLFWwindow* window, int width, int height)
 // input comes to "in vec3 aPos"
 // output goes to "gl_position
 const GLchar *vertexShaderSource = "#version 330 core\n"
-  "layout (location = 0) in vec3 aPos;\n"
-  "layout (location = 1) in vec2 aTexCoord;\n"
-  "out vec2 TexCoord;\n"
+  "layout (location = 0) in vec3 vPos;\n"
+  "layout (location = 1) in vec4 vColor;\n"
+  "out vec4 fColor;\n"
   "void main()\n"
   "{\n"
-  "   gl_Position = vec4(aPos.x, aPos.y, aPos.z, 1.0);\n"
-  "   TexCoord = aTexCoord;\n"
+  "   gl_Position = vec4(vPos.x, vPos.y, vPos.z, 1.0);\n"
+  "   fColor = vColor;\n"
   "}\0";
 
 // Fragment Shader Source:
 // out declares output
 // output is always FragColor
 const GLchar *fragmentShaderSource = "#version 330 core\n"
-  "out vec4 FragColor;\n"
-  "in vec2 TexCoord;\n"
-  "uniform sampler2D ourTexture;\n"
+  "out vec4 outColor;\n"
+  "in vec4 fColor;\n"
   "void main()\n"
   "{\n"
-  "   FragColor = texture(ourTexture, TexCoord);\n"
+  "   outColor = fColor;\n"
   "}\n\0";
 
 int main(int argc, char *argv[])
 {
-  // read TextureSize
-  size_t textureWidth = 128;
-  size_t textureHeight = 128;
-  if (argc >= 3)
+  // read Speed
+  if (argc >= 1)
   {
-    textureWidth = atoi(argv[1]);
-    textureHeight = atoi(argv[2]);
   }
 
   // OpenGL Status Variables:
@@ -156,7 +165,7 @@ int main(int argc, char *argv[])
 
 ///////////////////////////////////////////////////////////////////////////////
 // Create a state driven VAO
-  GLuint VAO;
+  GLuint VAO; // vertex array object
   glGenVertexArrays(1, &VAO);
   glBindVertexArray(VAO); // Bind Vertex Array First
 
@@ -208,29 +217,23 @@ int main(int argc, char *argv[])
   glDeleteShader(fragmentShader);
 
 ///////////////////////////////////////////////////////////////////////////////
-// Setup Vertex Data, Buffers and configure Vertex Attributes:
-
-  VertexData vertices[] = {
-    {.position = {-1.0f, -1.0f, 0.0f}, .textureCoords = {0.0f, 0.0f}},
-    {.position = { 1.0f, -1.0f, 0.0f}, .textureCoords = {1.0f, 0.0f}},
-    {.position = {-1.0f,  1.0f, 0.0f}, .textureCoords = {0.0f, 1.0f}},
-    {.position = { 1.0f,  1.0f, 0.0f}, .textureCoords = {1.0f, 1.0f}}
-  };
+// Setup Vertex Data, Buffers and configure Vertex Attributes
 
   // generate buffer and Array for vertices and bind and fill it
-  GLuint VBO;// Vertex Buffer Object, Vertex Array Object
-  glGenBuffers(1, &VBO);
-  glBindBuffer(GL_ARRAY_BUFFER, VBO);
-  // Copy Vertices Data
-  glBufferData(GL_ARRAY_BUFFER, sizeof(vertices), vertices, GL_STATIC_DRAW);
+  GLuint glPositionsVBO; // Vertex Buffer Object
+  glGenBuffers(1, &glPositionsVBO);
+  glBindBuffer(GL_ARRAY_BUFFER, glPositionsVBO);
+  size_t myTriangleSize = 3*(3+4)*sizeof(float); // 3 triangles with each 3 position values and 4 color values
+  // Allocate Vertices Data
+  glBufferData(GL_ARRAY_BUFFER, myTriangleSize, nullptr, GL_DYNAMIC_DRAW);
   // Explain Data via VertexAttributePointers to the shader
   // By Default, it's disabled
   // Enable the Vertex Attribute
   glEnableVertexAttribArray(GL_VERTEX_POSITION_ATTRIBUTE);
-  glVertexAttribPointer(GL_VERTEX_POSITION_ATTRIBUTE, 3, GL_FLOAT, GL_FALSE, 5 * sizeof(float), (GLvoid*)0);
+  glVertexAttribPointer(GL_VERTEX_POSITION_ATTRIBUTE, 3, GL_FLOAT, GL_FALSE, sizeof(VertexData), (GLvoid*)0);
   // Same for Texture: Pay Attention of Stride and begin
-  glEnableVertexAttribArray(GL_VERTEX_TEXTURE_COORD_ATTRIBUTE);
-  glVertexAttribPointer(GL_VERTEX_TEXTURE_COORD_ATTRIBUTE, 2, GL_FLOAT, GL_FALSE, 5 * sizeof(float), (GLvoid*)(3 * sizeof(float)));
+  glEnableVertexAttribArray(GL_VERTEX_COLOR_ATTRIBUTE);
+  glVertexAttribPointer(GL_VERTEX_COLOR_ATTRIBUTE, 4, GL_FLOAT, GL_FALSE, sizeof(VertexData), (GLvoid*)(3 * sizeof(float)));
 
   // possible unbinding:
   glBindBuffer(GL_ARRAY_BUFFER, 0);
@@ -238,31 +241,17 @@ int main(int argc, char *argv[])
 
   // uncomment this call to draw in wireframe polygons.
   //glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
-
 ///////////////////////////////////////////////////////////////////////////////
-// CUDA Texture Interaction
+// Cuda Vertex Interop
 
-  GLuint interopTexture;
-  cudaGraphicsResource *textureGraphicResource;
-  cudaArray *textureCudaArray;
-  
-  // specify surface
-  struct cudaResourceDesc resDesc;
-  memset(&resDesc, 0, sizeof(resDesc));
-  resDesc.resType = cudaResourceTypeArray;
-  cudaSurfaceObject_t deviceTextureGraphicSurface = 0;
-  
-  // Here the Calculations for the interop-Data
-  glGenTextures(1, &interopTexture);
-  glBindTexture(GL_TEXTURE_2D, interopTexture);
-  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_BORDER);	
-  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_BORDER);
-  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
-  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
-  // Just allocate, but no copy to it:
-  glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, textureWidth, textureHeight, 0, GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
-  // Register OpenGL texture to a cudaGraphicsResource for CUDA
-  checkCuda( cudaGraphicsGLRegisterImage( &textureGraphicResource, interopTexture, GL_TEXTURE_2D, cudaGraphicsRegisterFlagsWriteDiscard));
+  cudaGraphicsResource *positionsGraphicResource;
+  VertexData *d_VertexData;
+  cudaGraphicsGLRegisterBuffer(
+    &positionsGraphicResource,
+    glPositionsVBO,
+    cudaGraphicsMapFlagsWriteDiscard
+  );
+
 
 ///////////////////////////////////////////////////////////////////////////////
 // Render Loop
@@ -288,24 +277,20 @@ int main(int argc, char *argv[])
     glClear(GL_COLOR_BUFFER_BIT);
 
     // Map 1 graphics resource for access by CUDA in stream 0
-    checkCuda( cudaGraphicsMapResources(1, &textureGraphicResource, 0) );
+    checkCuda( cudaGraphicsMapResources(1, &positionsGraphicResource, 0) );
     // get the corresponding CudaArray of Resource at array position 0 and mipmap level 0
-    checkCuda( cudaGraphicsSubResourceGetMappedArray(&textureCudaArray, textureGraphicResource, 0, 0) );
-
-    // Create the surface objects
-    resDesc.res.array.array = textureCudaArray;
-    checkCuda( cudaCreateSurfaceObject(&deviceTextureGraphicSurface, &resDesc) );
-
+    checkCuda( cudaGraphicsResourceGetMappedPointer((void**)&d_VertexData, &myTriangleSize, positionsGraphicResource) );
     // run CUDA
-    myTextureKernel<<<16, 32>>>(deviceTextureGraphicSurface, textureWidth, textureHeight);
+    myVerticePositionKernel<<<1, 32>>>(d_VertexData, glfwGetTime());
+    myVerticeColorKernel<<<1, 32>>>(d_VertexData, glfwGetTime());
     // Unmap 1 resource from Stream 0
-    checkCuda( cudaGraphicsUnmapResources(1, &textureGraphicResource, 0) );
+    checkCuda( cudaGraphicsUnmapResources(1, &positionsGraphicResource, 0) );
 
     // Draw
     // Use the program for the pipeline (keep it to save state to VAO)
     glUseProgram(shaderProgram);
     glBindVertexArray(VAO); // Program is bound to VAO
-    glDrawArrays(GL_TRIANGLE_STRIP, 0, 4); // All about the loaded VAO
+    glDrawArrays(GL_TRIANGLES, 0, 3); // All about the loaded VAO
     glBindVertexArray(0); // To unbind Vertex Array
     glUseProgram(0);
 
@@ -320,8 +305,9 @@ int main(int argc, char *argv[])
 
   // Cleanup
   // OpenGL is reference counted and terminated by GLFW
-  checkCuda( cudaGraphicsUnregisterResource(textureGraphicResource) );
-  checkCuda( cudaDestroySurfaceObject(deviceTextureGraphicSurface) );
+  checkCuda( cudaGraphicsUnregisterResource(positionsGraphicResource) );
+  //checkCuda( cudaDestroySurfaceObject(deviceTextureGraphicSurface) );
+  checkCuda( cudaFree(d_VertexData));
   checkCuda( cudaDeviceReset() );
   glfwDestroyWindow(window);
   glfwTerminate();

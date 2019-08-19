@@ -156,6 +156,8 @@ int main(int argc, char *argv[])
   glfwMakeContextCurrent(window);
   // Manage Callbacks:
   glfwSetFramebufferSizeCallback(window, FramebufferSizeCallback);
+    // disable Vsync
+  glfwSwapInterval(0);
 
 ///////////////////////////////////////////////////////////////////////////////
 // Create a state driven VAO
