@@ -312,8 +312,6 @@ int main(int argc, char *argv[])
   // Cleanup
   // OpenGL is reference counted and terminated by GLFW
   checkCuda( cudaGraphicsUnregisterResource(positionsGraphicResource) );
-  //checkCuda( cudaDestroySurfaceObject(deviceTextureGraphicSurface) );
-  checkCuda( cudaFree(d_VertexData));
   checkCuda( cudaDeviceReset() );
   glfwDestroyWindow(window);
   glfwTerminate();

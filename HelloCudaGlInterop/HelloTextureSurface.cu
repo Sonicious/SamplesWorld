@@ -114,8 +114,8 @@ const GLchar *fragmentShaderSource = "#version 330 core\n"
 int main(int argc, char *argv[])
 {
   // read TextureSize
-  size_t textureWidth = 128;
-  size_t textureHeight = 128;
+  int textureWidth = 128;
+  int textureHeight = 128;
   if (argc >= 3)
   {
     textureWidth = atoi(argv[1]);
@@ -217,10 +217,10 @@ int main(int argc, char *argv[])
 // Setup Vertex Data, Buffers and configure Vertex Attributes:
 
   VertexData vertices[] = {
-    {.position = {-1.0f, -1.0f, 0.0f}, .textureCoords = {0.0f, 0.0f}},
-    {.position = { 1.0f, -1.0f, 0.0f}, .textureCoords = {1.0f, 0.0f}},
-    {.position = {-1.0f,  1.0f, 0.0f}, .textureCoords = {0.0f, 1.0f}},
-    {.position = { 1.0f,  1.0f, 0.0f}, .textureCoords = {1.0f, 1.0f}}
+    {{-1.0f, -1.0f, 0.0f},{0.0f, 0.0f}},
+    {{ 1.0f, -1.0f, 0.0f},{1.0f, 0.0f}},
+    {{-1.0f,  1.0f, 0.0f},{0.0f, 1.0f}},
+    {{ 1.0f,  1.0f, 0.0f},{1.0f, 1.0f}}
   };
 
   // generate buffer and Array for vertices and bind and fill it

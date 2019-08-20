@@ -13,7 +13,7 @@ set(CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH} "${CMAKE_SOURCE_DIR}/cmake/modules/")
 find_package(OpenGL)
 find_package(GLFW3)
 add_subdirectory(glad/)
-include_directories(${GLFW3_INCLUDE})
+include_directories(${GLFW3_INCLUDE_DIR})
 
 add_executable(HelloTextureDevicePointers HelloTextureDevicePointers.cu)
 add_executable(HelloTextureSurface HelloTextureSurface.cu)
