@@ -2,7 +2,7 @@
 #include <cstdio>
 #include <iostream>
 
-#define GL_GLEXT_PROTOTYPES
+#include "glad/glad.h"
 #include <GLFW/glfw3.h>
 #include <GL/gl.h>
 
@@ -44,10 +44,17 @@ typedef struct {
   GLfloat textureCoords[2];
 } VertexData;
 
+typedef struct {
+  unsigned char r;
+  unsigned char g;
+  unsigned char b;
+  unsigned char a;
+} pixelRGBA;
+
 ///////////////////////////////////////////////////////////////////////////////
 // CUDA Kernel for image:
 
-__global__ void myTextureKernel(cudaSurfaceObject_t SurfObj, size_t width, size_t height)
+__global__ void myTextureKernel(pixelRGBA *renderImageData, size_t width, size_t height, size_t pitch)
 {
   for (int idy = blockIdx.y * blockDim.y + threadIdx.y;
          idy < height;
@@ -57,17 +64,15 @@ __global__ void myTextureKernel(cudaSurfaceObject_t SurfObj, size_t width, size_
                idx < width;
                idx += blockDim.x * gridDim.x) 
             {
-                uchar4 data = make_uchar4(255,255,255,255);
-                // Read from input surface
-                //surf2Dread(&data,  inputSurfObj, x * sizeof(uchar4), y);
-                // Write to output surface
-                surf2Dwrite(data, SurfObj, idx * sizeof(uchar4), idy);
+                // according to CUDA documentation (see cudaMallocPitch())
+                pixelRGBA *myPixel = (pixelRGBA*) ((char*)renderImageData + idy*pitch) + idx;
+                myPixel->r = 255;
+                myPixel->g = 255;
+                myPixel->b = 255;
+                myPixel->a = 255;
             }
       }
 }
-
-///////////////////////////////////////////////////////////////////////////////
-// IO-Callbacks:
 
 // process all input: query GLFW whether relevant keys are pressed/released this frame and react accordingly
 // ---------------------------------------------------------------------------------------------------------
@@ -79,7 +84,7 @@ void processInput(GLFWwindow *window)
 
 // glfw: whenever the window size changed (by OS or user resize) this callback function executes
 // ---------------------------------------------------------------------------------------------
-void framebufferSizeCallback(GLFWwindow* window, int width, int height)
+void FramebufferSizeCallback(GLFWwindow* window, int width, int height)
 {
     // make sure the viewport matches the new window dimensions; note that width and 
     // height will be significantly larger than specified on retina displays.
@@ -149,9 +154,15 @@ int main(int argc, char *argv[])
   }
   // Make the window's context current
   glfwMakeContextCurrent(window);
+  // load pointers to OpenGL functions at runtime
+  if (!gladLoadGLLoader((GLADloadproc) glfwGetProcAddress))
+  {
+      printf("Failed to initialize OpenGL context");
+      return EXIT_FAILURE;
+  }
   // Manage Callbacks:
-  glfwSetFramebufferSizeCallback(window, framebufferSizeCallback);
-  // disable Vsync
+  glfwSetFramebufferSizeCallback(window, FramebufferSizeCallback);
+    // disable Vsync
   glfwSwapInterval(0);
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -216,7 +227,6 @@ int main(int argc, char *argv[])
     {.position = {-1.0f,  1.0f, 0.0f}, .textureCoords = {0.0f, 1.0f}},
     {.position = { 1.0f,  1.0f, 0.0f}, .textureCoords = {1.0f, 1.0f}}
   };
-
   // generate buffer and Array for vertices and bind and fill it
   GLuint VBO;// Vertex Buffer Object, Vertex Array Object
   glGenBuffers(1, &VBO);
@@ -243,14 +253,14 @@ int main(int argc, char *argv[])
 // CUDA Texture Interaction
 
   GLuint interopTexture;
+  pixelRGBA *deviceTextureGraphic;
+  size_t deviceTextureGraphicPitch;
   cudaGraphicsResource *textureGraphicResource;
   cudaArray *textureCudaArray;
-  
-  // specify surface
-  struct cudaResourceDesc resDesc;
-  memset(&resDesc, 0, sizeof(resDesc));
-  resDesc.resType = cudaResourceTypeArray;
-  cudaSurfaceObject_t deviceTextureGraphicSurface = 0;
+
+
+  // calculate Data size and MemAlloc Cuda Buffer
+  checkCuda( cudaMallocPitch(&deviceTextureGraphic, &deviceTextureGraphicPitch, textureWidth * sizeof(pixelRGBA), textureHeight) );
   
   // Here the Calculations for the interop-Data
   glGenTextures(1, &interopTexture);
@@ -287,24 +297,21 @@ int main(int argc, char *argv[])
     glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
     glClear(GL_COLOR_BUFFER_BIT);
 
+    // run CUDA
+    myTextureKernel<<<16, 32>>>(deviceTextureGraphic, textureWidth, textureHeight, deviceTextureGraphicPitch);
     // Map 1 graphics resource for access by CUDA in stream 0
     checkCuda( cudaGraphicsMapResources(1, &textureGraphicResource, 0) );
     // get the corresponding CudaArray of Resource at array position 0 and mipmap level 0
     checkCuda( cudaGraphicsSubResourceGetMappedArray(&textureCudaArray, textureGraphicResource, 0, 0) );
-
-    // Create the surface objects
-    resDesc.res.array.array = textureCudaArray;
-    checkCuda( cudaCreateSurfaceObject(&deviceTextureGraphicSurface, &resDesc) );
-
-    // run CUDA
-    myTextureKernel<<<16, 32>>>(deviceTextureGraphicSurface, textureWidth, textureHeight);
+    // copy Data to CudaArray from deviceRenderBuffer, wOffset=0, hOffset=0
+    checkCuda( cudaMemcpy2DToArray(textureCudaArray, 0, 0, deviceTextureGraphic, deviceTextureGraphicPitch, textureWidth * sizeof(pixelRGBA), textureHeight, cudaMemcpyDeviceToDevice));
     // Unmap 1 resource from Stream 0
     checkCuda( cudaGraphicsUnmapResources(1, &textureGraphicResource, 0) );
 
     // Draw
     // Use the program for the pipeline (keep it to save state to VAO)
     glUseProgram(shaderProgram);
-    glBindVertexArray(VAO); // Program is bound to VAO
+    glBindVertexArray(VAO); checkGL(); // Program is bound to VAO
     glDrawArrays(GL_TRIANGLE_STRIP, 0, 4); // All about the loaded VAO
     glBindVertexArray(0); // To unbind Vertex Array
     glUseProgram(0);
@@ -321,7 +328,7 @@ int main(int argc, char *argv[])
   // Cleanup
   // OpenGL is reference counted and terminated by GLFW
   checkCuda( cudaGraphicsUnregisterResource(textureGraphicResource) );
-  checkCuda( cudaDestroySurfaceObject(deviceTextureGraphicSurface) );
+  checkCuda( cudaFree(deviceTextureGraphic) );
   checkCuda( cudaDeviceReset() );
   glfwDestroyWindow(window);
   glfwTerminate();

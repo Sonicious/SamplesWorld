@@ -2,9 +2,11 @@
 #include <cstdio>
 #include <iostream>
 
-#define GL_GLEXT_PROTOTYPES
+#include "glad/glad.h"
 #include <GLFW/glfw3.h>
-#include <GL/gl.h>
+
+// GL Defines for stuff
+#define GL_VERTEX_POSITION_ATTRIBUTE 0
 
 ///////////////////////////////////////////////////////////////////////////////
 // IO-Callbacks:
@@ -19,11 +21,28 @@ void processInput(GLFWwindow *window)
 
 // glfw: whenever the window size changed (by OS or user resize) this callback function executes
 // ---------------------------------------------------------------------------------------------
-void framebuffer_size_callback(GLFWwindow* window, int width, int height)
+void framebufferSizeCallback(GLFWwindow* window, int width, int height)
 {
     // make sure the viewport matches the new window dimensions; note that width and 
     // height will be significantly larger than specified on retina displays.
     glViewport(0, 0, width, height);
+}
+
+// glfw: Error Callback for GLFW
+// -----------------------------
+void error_callback(int error, const char* description)
+{
+  printf("Error: %s\n", description);
+}
+
+void checkGL()
+{
+  GLenum error = glGetError();
+  if(error != GL_NO_ERROR)
+  {
+    printf("[ERROR] %d\n", error);
+    exit(EXIT_FAILURE);
+  }
 }
 
 // Vertex Shader Source:
@@ -45,11 +64,6 @@ const GLchar *fragmentShaderSource = "#version 330 core\n"
   "{\n"
   "   FragColor = vec4(1.0f, 0.5f, 0.2f, 1.0f);\n"
   "}\n\0";
-
-void error_callback(int error, const char* description)
-{
-  printf("Error: %s\n", description);
-}
 
 int main(void)
 {
@@ -80,8 +94,14 @@ int main(void)
   }
   // Make the window's context current
   glfwMakeContextCurrent(window);
+  // load pointers to OpenGL functions at runtime
+  if (!gladLoadGLLoader((GLADloadproc) glfwGetProcAddress))
+  {
+      printf("Failed to initialize OpenGL context");
+      return EXIT_FAILURE;
+  }
   // Manage Callbacks:
-  glfwSetFramebufferSizeCallback(window, framebuffer_size_callback);
+  glfwSetFramebufferSizeCallback(window, framebufferSizeCallback);
 
 ///////////////////////////////////////////////////////////////////////////////
 // Create Shader Program:
@@ -145,15 +165,14 @@ int main(void)
   glBindBuffer(GL_ARRAY_BUFFER, VBO);
   // Copy Vertices Data
   glBufferData(GL_ARRAY_BUFFER, sizeof(vertices), vertices, GL_STATIC_DRAW);
-  // Explain Data via VertexAttributePointers
-  glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 3 * sizeof(float), (GLvoid*)0);
-  // By Default, it's disabled
   // Enable the Vertex Attribute
-  glEnableVertexAttribArray(0); 
+  glEnableVertexAttribArray(GL_VERTEX_POSITION_ATTRIBUTE); 
+  // Explain Data via VertexAttributePointers
+  glVertexAttribPointer(GL_VERTEX_POSITION_ATTRIBUTE, 3, GL_FLOAT, GL_FALSE, 3 * sizeof(float), (GLvoid*)0);
 
   // possible unbinding:
-  //glBindBuffer(GL_ARRAY_BUFFER, 0);
-  //glBindVertexArray(0);
+  glBindBuffer(GL_ARRAY_BUFFER, 0);
+  glBindVertexArray(0);
 
   // uncomment this call to draw in wireframe polygons.
   //glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);

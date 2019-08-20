@@ -2,7 +2,7 @@
 #include <cstdio>
 #include <iostream>
 
-#define GL_GLEXT_PROTOTYPES
+#include "glad/glad.h"
 #include <GLFW/glfw3.h>
 #include <GL/gl.h>
 
@@ -158,6 +158,12 @@ int main(int argc, char *argv[])
   }
   // Make the window's context current
   glfwMakeContextCurrent(window);
+  // load pointers to OpenGL functions at runtime
+  if (!gladLoadGLLoader((GLADloadproc) glfwGetProcAddress))
+  {
+      printf("Failed to initialize OpenGL context");
+      return EXIT_FAILURE;
+  }
   // Manage Callbacks:
   glfwSetFramebufferSizeCallback(window, framebufferSizeCallback);
   // disable Vsync
