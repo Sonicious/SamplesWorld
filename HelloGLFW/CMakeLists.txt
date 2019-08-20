@@ -14,5 +14,7 @@ find_package(GLFW3)
 include_directories(${GLFW3_INCLUDE_DIR})
 add_subdirectory(glad/)
 
+add_executable(glfwOffScreenTest glfwOffScreenTest.cpp)
 add_executable(HelloGLFW HelloGLFW.cpp)
 target_link_libraries(HelloGLFW ${GLFW3_LIBRARY} OpenGL::GL glad )
+target_link_libraries(glfwOffScreenTest ${GLFW3_LIBRARY} OpenGL::GL glad )
