@@ -11,7 +11,7 @@ endif()
 set(CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH} "${CMAKE_SOURCE_DIR}/cmake/modules/")
 find_package(OpenGL)
 find_package(GLFW3)
-include_directories(${GLFW3_INCLUDE})
+include_directories(${GLFW3_INCLUDE_DIR})
 add_subdirectory(glad/)
 
 add_executable(HelloGLFW HelloGLFW.cpp)
