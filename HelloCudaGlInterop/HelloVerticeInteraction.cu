@@ -252,11 +252,11 @@ int main(int argc, char *argv[])
 
   cudaGraphicsResource *positionsGraphicResource;
   VertexData *d_VertexData;
-  cudaGraphicsGLRegisterBuffer(
+  checkCuda( cudaGraphicsGLRegisterBuffer(
     &positionsGraphicResource,
     glPositionsVBO,
     cudaGraphicsMapFlagsWriteDiscard
-  );
+  ) );
 
 
 ///////////////////////////////////////////////////////////////////////////////

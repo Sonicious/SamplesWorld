@@ -4,7 +4,6 @@
 
 #include "glad/glad.h"
 #include <GLFW/glfw3.h>
-#include <GL/gl.h>
 
 // CUDA headers
 #include <cuda_runtime_api.h>
@@ -136,16 +135,29 @@ int main(int argc, char *argv[])
   // disable Vsync
   glfwSwapInterval(0);
 
+  // get original framebuffer dimensions
+  GLint dims[4] = {0};
+  glGetIntegerv(GL_VIEWPORT, dims);
+  GLint fbWidth = dims[2];
+  GLint fbHeight = dims[3];
+  printf("[LOG] Size: %d x %d\n", fbWidth, fbHeight);
+
 ///////////////////////////////////////////////////////////////////////////////
-// Framebuffer stuff
+// Manage Framebuffer and Renderbuffer for off-screen rendering
 
-  GLuint frameBuffer, renderBuffer;
-  glGenFramebuffers(1, &frameBuffer);
-  glBindFramebuffer(GL_FRAMEBUFFER, frameBuffer);
-  glGenRenderBuffer(renderBuffer);
-
-  if(glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE) printf("[LOG] problem!\n");
-  glBindFramebuffer(GL_FRAMEBUFFER, 0);
+  GLuint framebuffer, renderbuffer;
+  glGenFramebuffers(1, &framebuffer);
+  glBindFramebuffer(GL_FRAMEBUFFER, framebuffer);
+  glGenRenderbuffers(1, &renderbuffer);
+  glBindRenderbuffer(GL_RENDERBUFFER, renderbuffer);
+  glRenderbufferStorage(GL_RENDERBUFFER, GL_RGBA, fbWidth, fbHeight);
+  glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_RENDERBUFFER, renderbuffer);
+  if(glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE)
+  {
+    printf("[ERROR] Framebuffer not complete\n");
+  }
+  glBindFramebuffer(GL_FRAMEBUFFER, framebuffer);
+  glViewport(0, 0, fbWidth, fbHeight);
 
 ///////////////////////////////////////////////////////////////////////////////
 // Create a state driven VAO
@@ -234,6 +246,16 @@ int main(int argc, char *argv[])
 ///////////////////////////////////////////////////////////////////////////////
 // Cuda Pixel Buffer Interop
 
+  cudaGraphicsResource_t renderbufferGraphicResource = 0;
+  checkCuda( cudaGraphicsGLRegisterImage(
+    &renderbufferGraphicResource,
+    renderbuffer,
+    GL_RENDERBUFFER,
+    cudaGraphicsMapFlagsNone
+  ) );
+
+cudaArray_t cudaArrayData = 0;
+cudaMipmappedArray_t cudaMipmappedArrayData = 0;
 
 ///////////////////////////////////////////////////////////////////////////////
 // Render Loop
@@ -255,7 +277,7 @@ int main(int argc, char *argv[])
     }
 
     // set bg color here via Clearing
-    glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
+    glClearColor(0.2f, 0.3f, 0.3f, 1.0f);
     glClear(GL_COLOR_BUFFER_BIT);
 
     // Draw
@@ -265,14 +287,29 @@ int main(int argc, char *argv[])
     glDrawArrays(GL_TRIANGLES, 0, 3); // All about the loaded VAO
     glBindVertexArray(0); // To unbind Vertex Array
     glUseProgram(0);
+
+    checkCuda( cudaGraphicsMapResources(1, &renderbufferGraphicResource, 0) );
+    checkCuda( cudaGraphicsSubResourceGetMappedArray(&cudaArrayData, renderbufferGraphicResource, 0, 0) );
+    checkCuda( cudaGraphicsResourceGetMappedMipmappedArray(&cudaMipmappedArrayData, renderbufferGraphicResource) );
+    myFramebufferKernel<<<16, 32>>>();
+    checkCuda( cudaGraphicsUnmapResources(1, &renderbufferGraphicResource, 0) );
+
+    glBindFramebuffer(GL_READ_FRAMEBUFFER, framebuffer);
+    glBindFramebuffer(GL_DRAW_FRAMEBUFFER, 0);
+    glBlitFramebuffer(0, 0, fbWidth, fbHeight, 0, 0, fbWidth, fbHeight, GL_COLOR_BUFFER_BIT, GL_NEAREST);
+    
     // Swap front and back buffers
-    //glfwSwapBuffers(window);
+    glfwSwapBuffers(window);
+
+    glBindFramebuffer(GL_FRAMEBUFFER, framebuffer);
+
     // Check for Inputs:
     processInput(window);
     // Poll for and process events
     glfwPollEvents();
   }
 
+  checkGL();
   // Cleanup
   // OpenGL is reference counted and terminated by GLFW
   glfwDestroyWindow(window);
