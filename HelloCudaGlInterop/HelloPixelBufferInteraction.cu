@@ -46,7 +46,7 @@ typedef struct {
 ///////////////////////////////////////////////////////////////////////////////
 // CUDA Kernel for image:
 
-__global__ void myPixelBufferKernel(double time)
+__global__ void myFramebufferKernel()
 {
 }
 
