@@ -89,6 +89,7 @@ int main(void)
   glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 2);
   glfwWindowHint(GLFW_OPENGL_FORWARD_COMPAT, GL_TRUE);
   glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
+  glfwWindowHint(GLFW_COCOA_RETINA_FRAMEBUFFER, GLFW_FALSE);
   // Create a windowed mode window and its OpenGL context
   GLFWwindow* window = glfwCreateWindow(600, 600, "Hello World", NULL, NULL);
   if (!window)
@@ -186,9 +187,9 @@ int main(void)
 // Setup Vertex Data, Buffers and configure Vertex Attributes:
 
   float vertices[] = {
-    -0.5f, -0.5f, 0.0f,
-     0.5f, -0.5f, 0.0f,
-     0.0f,  0.5f, 0.0f
+    -0.8f, -0.8f, 0.0f,
+     0.8f, -0.8f, 0.0f,
+     0.0f,  0.8f, 0.0f
   };  
 
   // generate buffer and Array for vertices and bind and fill it

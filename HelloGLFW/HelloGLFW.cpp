@@ -153,9 +153,9 @@ int main(void)
 // Setup Vertex Data, Buffers and configure Vertex Attributes:
 
   float vertices[] = {
-   -1.0f, -1.0f, 0.0f,
-    1.0f, -1.0f, 0.0f,
-    1.0f,  1.0f, 0.0f
+    -0.8f, -0.8f, 0.0f,
+    0.8f, -0.8f, 0.0f,
+    0.0f,  0.8f, 0.0f
   };
 
   // generate buffer and Array for vertices and bind and fill it
