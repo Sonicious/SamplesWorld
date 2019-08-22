@@ -250,7 +250,7 @@ int main(int argc, char *argv[])
 ///////////////////////////////////////////////////////////////////////////////
 // Cuda Vertex Interop
 
-  cudaGraphicsResource *positionsGraphicResource;
+  cudaGraphicsResource_t positionsGraphicResource = 0;
   VertexData *d_VertexData;
   checkCuda( cudaGraphicsGLRegisterBuffer(
     &positionsGraphicResource,
