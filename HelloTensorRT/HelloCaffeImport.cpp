@@ -70,12 +70,8 @@ int main(int argc, char *argv[])
 
   // Add Layers to Network
   std::cout << "[LOG] " << "Build Network" <<std::endl;
-  nvinfer1::ITensor *input = network->addInput("InputLayer", nvinfer1::DataType::kFLOAT, nvinfer1::Dims3(numberInputs,1, 1));
-  nvinfer1::IIdentityLayer *layer1 = network->addIdentity(*input);
-  nvinfer1::ISoftMaxLayer *layer2 = network->addSoftMax(*input);
-  nvinfer1::IIdentityLayer *output = network->addIdentity(*layer2->getOutput(0));
-  output->getOutput(0)->setName("OutputLayer");
-  network->markOutput(*output->getOutput(0));
+  
+  return EXIT_SUCCESS;
 
   // Make Engine out of Network
   std::cout << "[LOG] " << "Build Cuda Engine" <<std::endl;
