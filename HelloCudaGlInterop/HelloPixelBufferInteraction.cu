@@ -4,7 +4,6 @@
 
 #include "glad/glad.h"
 #include <GLFW/glfw3.h>
-#include <GL/gl.h>
 
 // CUDA headers
 #include <cuda_runtime_api.h>
@@ -13,11 +12,6 @@
 // GL Defines for stuff
 #define GL_VERTEX_POSITION_ATTRIBUTE 0
 #define GL_VERTEX_COLOR_ATTRIBUTE 1
-
-// speed controllers per second:
-#define PIF 3.141592654f
-#define SPINSPEED 1
-#define RADIUSSPEED 1
 
 void checkCuda(cudaError_t result)
 {
@@ -52,32 +46,8 @@ typedef struct {
 ///////////////////////////////////////////////////////////////////////////////
 // CUDA Kernel for image:
 
-__global__ void myVerticePositionKernel(VertexData *vertices, double time)
+__global__ void myFramebufferKernel()
 {
-  for (
-    int idx = blockIdx.x * blockDim.x + threadIdx.x;
-    idx < 3;
-    idx += blockDim.x * gridDim.x)
-    {
-      float radius = (1 + cosf(time * RADIUSSPEED)) / 3.0 + 1/3.0f;
-      vertices[idx].position[0] = radius * cosf(idx * 2 * PIF / 3.0 + time * SPINSPEED);
-      vertices[idx].position[1] = radius * sinf(idx * 2 * PIF / 3.0 + time * SPINSPEED);
-      vertices[idx].position[2] = 1.0f;
-    } 
-}
-
-__global__ void myVerticeColorKernel(VertexData *vertices, double time)
-{
-  for (
-    int idx = blockIdx.x * blockDim.x + threadIdx.x;
-    idx < 3;
-    idx += blockDim.x * gridDim.x)
-    {
-      vertices[idx].color[0] = (1 + cosf(idx * 2 * PIF / 3.0 + time * 1)) / 2.0;
-      vertices[idx].color[1] = (1 + sinf(idx * 2 * PIF / 3.0 + time * 2)) / 2.0;
-      vertices[idx].color[2] = (1 + cosf(idx * 2 * PIF / 3.0 + time * 3)) / 2.0;
-      vertices[idx].color[3] = 1.0f;
-    } 
 }
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -126,11 +96,6 @@ const GLchar *fragmentShaderSource = "#version 330 core\n"
 
 int main(int argc, char *argv[])
 {
-  // read Speed
-  if (argc >= 1)
-  {
-  }
-
   // OpenGL Status Variables:
   GLint  success;
   char infoLog[512];
@@ -145,7 +110,8 @@ int main(int argc, char *argv[])
   }
   // Set Error Callback
   glfwSetErrorCallback(glfwErrorCallback);
-  glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3); // We want OpenGL 3.3
+  // We want OpenGL 3.3 Core Profile
+  glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3);
   glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 3);
   glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
   // Create a windowed mode window and its OpenGL context
@@ -168,6 +134,30 @@ int main(int argc, char *argv[])
   glfwSetFramebufferSizeCallback(window, framebufferSizeCallback);
   // disable Vsync
   glfwSwapInterval(0);
+
+  // get original framebuffer dimensions
+  GLint dims[4] = {0};
+  glGetIntegerv(GL_VIEWPORT, dims);
+  GLint fbWidth = dims[2];
+  GLint fbHeight = dims[3];
+  printf("[LOG] Size: %d x %d\n", fbWidth, fbHeight);
+
+///////////////////////////////////////////////////////////////////////////////
+// Manage Framebuffer and Renderbuffer for off-screen rendering
+
+  GLuint framebuffer, renderbuffer;
+  glGenFramebuffers(1, &framebuffer);
+  glBindFramebuffer(GL_FRAMEBUFFER, framebuffer);
+  glGenRenderbuffers(1, &renderbuffer);
+  glBindRenderbuffer(GL_RENDERBUFFER, renderbuffer);
+  glRenderbufferStorage(GL_RENDERBUFFER, GL_RGBA, fbWidth, fbHeight);
+  glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_RENDERBUFFER, renderbuffer);
+  if(glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE)
+  {
+    printf("[ERROR] Framebuffer not complete\n");
+  }
+  glBindFramebuffer(GL_FRAMEBUFFER, framebuffer);
+  glViewport(0, 0, fbWidth, fbHeight);
 
 ///////////////////////////////////////////////////////////////////////////////
 // Create a state driven VAO
@@ -229,9 +219,14 @@ int main(int argc, char *argv[])
   GLuint glPositionsVBO; // Vertex Buffer Object
   glGenBuffers(1, &glPositionsVBO);
   glBindBuffer(GL_ARRAY_BUFFER, glPositionsVBO);
-  size_t myTriangleSize = 3*(3+4)*sizeof(float); // 3 triangles with each 3 position values and 4 color values
+  VertexData myTriangle[3] = 
+  {
+    {{-0.8f, -0.8f, 0.0f}, {1.0f, 0.0f, 0.0f, 1.0f}},
+    {{ 0.8f, -0.8f, 0.0f}, {0.0f, 1.0f, 0.0f, 1.0f}},
+    {{ 0.0f,  0.8f, 0.0f}, {0.0f, 0.0f, 1.0f, 1.0f}}
+  };
   // Allocate Vertices Data
-  glBufferData(GL_ARRAY_BUFFER, myTriangleSize, nullptr, GL_DYNAMIC_DRAW);
+  glBufferData(GL_ARRAY_BUFFER, sizeof(myTriangle), myTriangle, GL_STATIC_DRAW);
   // Explain Data via VertexAttributePointers to the shader
   // By Default, it's disabled
   // Enable the Vertex Attribute
@@ -247,17 +242,20 @@ int main(int argc, char *argv[])
 
   // uncomment this call to draw in wireframe polygons.
   //glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
-///////////////////////////////////////////////////////////////////////////////
-// Cuda Vertex Interop
 
-  cudaGraphicsResource_t positionsGraphicResource = 0;
-  VertexData *d_VertexData;
-  checkCuda( cudaGraphicsGLRegisterBuffer(
-    &positionsGraphicResource,
-    glPositionsVBO,
-    cudaGraphicsMapFlagsWriteDiscard
+///////////////////////////////////////////////////////////////////////////////
+// Cuda Pixel Buffer Interop
+
+  cudaGraphicsResource_t renderbufferGraphicResource = 0;
+  checkCuda( cudaGraphicsGLRegisterImage(
+    &renderbufferGraphicResource,
+    renderbuffer,
+    GL_RENDERBUFFER,
+    cudaGraphicsMapFlagsNone
   ) );
 
+cudaArray_t cudaArrayData = 0;
+cudaMipmappedArray_t cudaMipmappedArrayData = 0;
 
 ///////////////////////////////////////////////////////////////////////////////
 // Render Loop
@@ -279,18 +277,8 @@ int main(int argc, char *argv[])
     }
 
     // set bg color here via Clearing
-    glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
+    glClearColor(0.2f, 0.3f, 0.3f, 1.0f);
     glClear(GL_COLOR_BUFFER_BIT);
-
-    // Map 1 graphics resource for access by CUDA in stream 0
-    checkCuda( cudaGraphicsMapResources(1, &positionsGraphicResource, 0) );
-    // get the corresponding CudaArray of Resource at array position 0 and mipmap level 0
-    checkCuda( cudaGraphicsResourceGetMappedPointer((void**)&d_VertexData, &myTriangleSize, positionsGraphicResource) );
-    // run CUDA
-    myVerticePositionKernel<<<1, 32>>>(d_VertexData, glfwGetTime());
-    myVerticeColorKernel<<<1, 32>>>(d_VertexData, glfwGetTime());
-    // Unmap 1 resource from Stream 0
-    checkCuda( cudaGraphicsUnmapResources(1, &positionsGraphicResource, 0) );
 
     // Draw
     // Use the program for the pipeline (keep it to save state to VAO)
@@ -300,8 +288,20 @@ int main(int argc, char *argv[])
     glBindVertexArray(0); // To unbind Vertex Array
     glUseProgram(0);
 
+    checkCuda( cudaGraphicsMapResources(1, &renderbufferGraphicResource, 0) );
+    checkCuda( cudaGraphicsSubResourceGetMappedArray(&cudaArrayData, renderbufferGraphicResource, 0, 0) );
+    checkCuda( cudaGraphicsResourceGetMappedMipmappedArray(&cudaMipmappedArrayData, renderbufferGraphicResource) );
+    myFramebufferKernel<<<16, 32>>>();
+    checkCuda( cudaGraphicsUnmapResources(1, &renderbufferGraphicResource, 0) );
+
+    glBindFramebuffer(GL_READ_FRAMEBUFFER, framebuffer);
+    glBindFramebuffer(GL_DRAW_FRAMEBUFFER, 0);
+    glBlitFramebuffer(0, 0, fbWidth, fbHeight, 0, 0, fbWidth, fbHeight, GL_COLOR_BUFFER_BIT, GL_NEAREST);
+    
     // Swap front and back buffers
     glfwSwapBuffers(window);
+
+    glBindFramebuffer(GL_FRAMEBUFFER, framebuffer);
 
     // Check for Inputs:
     processInput(window);
@@ -309,10 +309,9 @@ int main(int argc, char *argv[])
     glfwPollEvents();
   }
 
+  checkGL();
   // Cleanup
   // OpenGL is reference counted and terminated by GLFW
-  checkCuda( cudaGraphicsUnregisterResource(positionsGraphicResource) );
-  checkCuda( cudaDeviceReset() );
   glfwDestroyWindow(window);
   glfwTerminate();
   return EXIT_SUCCESS;

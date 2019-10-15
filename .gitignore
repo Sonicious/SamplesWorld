@@ -1,3 +1,4 @@
 # build directories:
 build
 .swp
+.DS_Store

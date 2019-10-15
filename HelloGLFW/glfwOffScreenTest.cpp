@@ -4,81 +4,9 @@
 
 #include "glad/glad.h"
 #include <GLFW/glfw3.h>
-#include <GL/gl.h>
-
-// CUDA headers
-#include <cuda_runtime_api.h>
-#include <cuda_gl_interop.h>
 
 // GL Defines for stuff
 #define GL_VERTEX_POSITION_ATTRIBUTE 0
-#define GL_VERTEX_COLOR_ATTRIBUTE 1
-
-// speed controllers per second:
-#define PIF 3.141592654f
-#define SPINSPEED 1
-#define RADIUSSPEED 1
-
-void checkCuda(cudaError_t result)
-{
-    if (result != cudaSuccess)
-    {
-        printf("[ERROR] %s\n", cudaGetErrorName(result));
-        printf("[ERROR] %s\n", cudaGetErrorString(result));
-        exit(EXIT_FAILURE);
-    }
-}
-
-void checkGL()
-{
-  GLenum error = glGetError();
-  if(error != GL_NO_ERROR)
-  {
-    printf("[ERROR] %d\n", error);
-    exit(EXIT_FAILURE);
-  }
-}
-
-void glfwErrorCallback(int error, const char* description)
-{
-  printf("Error: %s\n", description);
-}
-
-typedef struct {
-  GLfloat position[3];
-  GLfloat color[4];
-} VertexData;
-
-///////////////////////////////////////////////////////////////////////////////
-// CUDA Kernel for image:
-
-__global__ void myVerticePositionKernel(VertexData *vertices, double time)
-{
-  for (
-    int idx = blockIdx.x * blockDim.x + threadIdx.x;
-    idx < 3;
-    idx += blockDim.x * gridDim.x)
-    {
-      float radius = (1 + cosf(time * RADIUSSPEED)) / 3.0 + 1/3.0f;
-      vertices[idx].position[0] = radius * cosf(idx * 2 * PIF / 3.0 + time * SPINSPEED);
-      vertices[idx].position[1] = radius * sinf(idx * 2 * PIF / 3.0 + time * SPINSPEED);
-      vertices[idx].position[2] = 1.0f;
-    } 
-}
-
-__global__ void myVerticeColorKernel(VertexData *vertices, double time)
-{
-  for (
-    int idx = blockIdx.x * blockDim.x + threadIdx.x;
-    idx < 3;
-    idx += blockDim.x * gridDim.x)
-    {
-      vertices[idx].color[0] = (1 + cosf(idx * 2 * PIF / 3.0 + time * 1)) / 2.0;
-      vertices[idx].color[1] = (1 + sinf(idx * 2 * PIF / 3.0 + time * 2)) / 2.0;
-      vertices[idx].color[2] = (1 + cosf(idx * 2 * PIF / 3.0 + time * 3)) / 2.0;
-      vertices[idx].color[3] = 1.0f;
-    } 
-}
 
 ///////////////////////////////////////////////////////////////////////////////
 // IO-Callbacks:
@@ -100,43 +28,55 @@ void framebufferSizeCallback(GLFWwindow* window, int width, int height)
     glViewport(0, 0, width, height);
 }
 
+// glfw: Error Callback for GLFW
+// -----------------------------
+void error_callback(int error, const char* description)
+{
+  printf("Error: %s\n", description);
+}
+
+void checkGL()
+{
+  GLenum error = glGetError();
+  if(error != GL_NO_ERROR)
+  {
+    printf("[ERROR] %d\n", error);
+    exit(EXIT_FAILURE);
+  }
+  else
+  {
+    printf("[LOG] GL ok so far\n");
+  }
+}
+
 // Vertex Shader Source:
 // input comes to "in vec3 aPos"
 // output goes to "gl_position
 const GLchar *vertexShaderSource = "#version 330 core\n"
-  "layout (location = 0) in vec3 vPos;\n"
-  "layout (location = 1) in vec4 vColor;\n"
-  "out vec4 fColor;\n"
+  "layout (location = 0) in vec3 aPos;\n"
   "void main()\n"
   "{\n"
-  "   gl_Position = vec4(vPos.x, vPos.y, vPos.z, 1.0);\n"
-  "   fColor = vColor;\n"
+  "   gl_Position = vec4(aPos.x, aPos.y, aPos.z, 1.0);\n"
   "}\0";
 
 // Fragment Shader Source:
 // out declares output
 // output is always FragColor
 const GLchar *fragmentShaderSource = "#version 330 core\n"
-  "out vec4 outColor;\n"
-  "in vec4 fColor;\n"
+  "out vec4 FragColor;\n"
   "void main()\n"
   "{\n"
-  "   outColor = fColor;\n"
+  "   FragColor = vec4(1.0f, 0.5f, 0.2f, 1.0f);\n"
   "}\n\0";
 
-int main(int argc, char *argv[])
+int main(void)
 {
-  // read Speed
-  if (argc >= 1)
-  {
-  }
-
   // OpenGL Status Variables:
   GLint  success;
   char infoLog[512];
 
 ///////////////////////////////////////////////////////////////////////////////
-// Initialize everything for GLFW
+// Initialize everything till Rendering-Loop:
 
   // Initialize the library
   if (!glfwInit())
@@ -144,12 +84,14 @@ int main(int argc, char *argv[])
     return EXIT_FAILURE;
   }
   // Set Error Callback
-  glfwSetErrorCallback(glfwErrorCallback);
-  glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3); // We want OpenGL 3.3
-  glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 3);
+  glfwSetErrorCallback(error_callback);
+  glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3); // We want OpenGL 3.2
+  glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 2);
+  glfwWindowHint(GLFW_OPENGL_FORWARD_COMPAT, GL_TRUE);
   glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
+  glfwWindowHint(GLFW_COCOA_RETINA_FRAMEBUFFER, GLFW_FALSE);
   // Create a windowed mode window and its OpenGL context
-  GLFWwindow* window = glfwCreateWindow(1000, 1000, "Hello Cuda GLFW Interop", NULL, NULL);
+  GLFWwindow* window = glfwCreateWindow(600, 600, "Hello World", NULL, NULL);
   if (!window)
   {
     printf("Failed to create GLFW window!");
@@ -169,11 +111,32 @@ int main(int argc, char *argv[])
   // disable Vsync
   glfwSwapInterval(0);
 
+  // get original framebuffer dimensions
+  GLint dims[4] = {0};
+  glGetIntegerv(GL_VIEWPORT, dims);
+  GLint fbWidth = dims[2];
+  GLint fbHeight = dims[3];
+  printf("[LOG] Size: %d x %d\n", fbWidth, fbHeight);
+
 ///////////////////////////////////////////////////////////////////////////////
-// Create a state driven VAO
-  GLuint VAO; // vertex array object
-  glGenVertexArrays(1, &VAO);
-  glBindVertexArray(VAO); // Bind Vertex Array First
+// Manage Framebuffer and Renderbuffer for off-screen rendering
+
+  GLuint framebuffer, renderbuffer;
+  glGenFramebuffers(1, &framebuffer);
+  glBindFramebuffer(GL_FRAMEBUFFER, framebuffer);
+  glGenRenderbuffers(1, &renderbuffer);
+  glBindRenderbuffer(GL_RENDERBUFFER, renderbuffer);
+  //glRenderbufferStorage(GL_RENDERBUFFER, GL_RGB, fbWidth, fbHeight);
+  // Anti-Aliasing:
+  GLuint superSamplingFactor = 2;
+  glRenderbufferStorageMultisample(GL_RENDERBUFFER, superSamplingFactor, GL_RGB, fbWidth, fbHeight);
+  glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_RENDERBUFFER, renderbuffer);
+  if(glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE)
+  {
+    printf("[ERROR] Framebuffer not complete\n");
+  }
+  glBindFramebuffer(GL_FRAMEBUFFER, framebuffer);
+  glViewport(0, 0, fbWidth, fbHeight);
 
 ///////////////////////////////////////////////////////////////////////////////
 // Create Shader Program:
@@ -188,8 +151,7 @@ int main(int argc, char *argv[])
   if(!success)
   {
     glGetShaderInfoLog(vertexShader, 512, NULL, infoLog);
-    printf("Vertex Shader Compilation Failed:\n%s\n",infoLog);
-    return EXIT_FAILURE;
+    //printf("Vertex Shader Compilation Failed:\n%s\n",infoLog);
   }
   // Create fragment shader, load and compile
   GLuint fragmentShader;
@@ -202,7 +164,6 @@ int main(int argc, char *argv[])
   {
     glGetShaderInfoLog(vertexShader, 512, NULL, infoLog);
     printf("Fragment Shader Compilation Failed:\n%s\n",infoLog);
-    return EXIT_FAILURE;
   }
   // Link Shaders together to a program
   GLuint shaderProgram;
@@ -215,31 +176,34 @@ int main(int argc, char *argv[])
   {
       glGetProgramInfoLog(shaderProgram, 512, NULL, infoLog);
       printf("Program Linking Failed:\n%s\n",infoLog);
-      return EXIT_FAILURE;
   }
-
-  // delete Shaders (not needed anymore, because completely compiled and so on)
+  // Use the program for the pipeline
+  glUseProgram(shaderProgram);
+  // delete Shaders (not needed anymore)
   glDeleteShader(vertexShader);
   glDeleteShader(fragmentShader);
 
 ///////////////////////////////////////////////////////////////////////////////
-// Setup Vertex Data, Buffers and configure Vertex Attributes
+// Setup Vertex Data, Buffers and configure Vertex Attributes:
+
+  float vertices[] = {
+    -0.8f, -0.8f, 0.0f,
+     0.8f, -0.8f, 0.0f,
+     0.0f,  0.8f, 0.0f
+  };  
 
   // generate buffer and Array for vertices and bind and fill it
-  GLuint glPositionsVBO; // Vertex Buffer Object
-  glGenBuffers(1, &glPositionsVBO);
-  glBindBuffer(GL_ARRAY_BUFFER, glPositionsVBO);
-  size_t myTriangleSize = 3*(3+4)*sizeof(float); // 3 triangles with each 3 position values and 4 color values
-  // Allocate Vertices Data
-  glBufferData(GL_ARRAY_BUFFER, myTriangleSize, nullptr, GL_DYNAMIC_DRAW);
-  // Explain Data via VertexAttributePointers to the shader
-  // By Default, it's disabled
+  GLuint VBO, VAO;// Vertex Buffer Object, Vertex Array Object
+  glGenVertexArrays(1, &VAO);
+  glBindVertexArray(VAO); // Bind Vertex Array First
+  glGenBuffers(1, &VBO);
+  glBindBuffer(GL_ARRAY_BUFFER, VBO);
+  // Copy Vertices Data
+  glBufferData(GL_ARRAY_BUFFER, sizeof(vertices), vertices, GL_STATIC_DRAW);
   // Enable the Vertex Attribute
-  glEnableVertexAttribArray(GL_VERTEX_POSITION_ATTRIBUTE);
-  glVertexAttribPointer(GL_VERTEX_POSITION_ATTRIBUTE, 3, GL_FLOAT, GL_FALSE, sizeof(VertexData), (GLvoid*)0);
-  // Same for Texture: Pay Attention of Stride and begin
-  glEnableVertexAttribArray(GL_VERTEX_COLOR_ATTRIBUTE);
-  glVertexAttribPointer(GL_VERTEX_COLOR_ATTRIBUTE, 4, GL_FLOAT, GL_FALSE, sizeof(VertexData), (GLvoid*)(3 * sizeof(float)));
+  glEnableVertexAttribArray(GL_VERTEX_POSITION_ATTRIBUTE); 
+  // Explain Data via VertexAttributePointers
+  glVertexAttribPointer(GL_VERTEX_POSITION_ATTRIBUTE, 3, GL_FLOAT, GL_FALSE, 3 * sizeof(float), (GLvoid*)0);
 
   // possible unbinding:
   glBindBuffer(GL_ARRAY_BUFFER, 0);
@@ -247,17 +211,6 @@ int main(int argc, char *argv[])
 
   // uncomment this call to draw in wireframe polygons.
   //glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
-///////////////////////////////////////////////////////////////////////////////
-// Cuda Vertex Interop
-
-  cudaGraphicsResource_t positionsGraphicResource = 0;
-  VertexData *d_VertexData;
-  checkCuda( cudaGraphicsGLRegisterBuffer(
-    &positionsGraphicResource,
-    glPositionsVBO,
-    cudaGraphicsMapFlagsWriteDiscard
-  ) );
-
 
 ///////////////////////////////////////////////////////////////////////////////
 // Render Loop
@@ -272,47 +225,36 @@ int main(int argc, char *argv[])
     nbFrames++;
     if ( currentTime - lastTime >= 1.0 ){ // If last prinf() was more than 1 sec ago
         // printf and reset timer
-        sprintf(windowTitle, "Hello Cuda GLFW Interop | %f ms/frame", 1000.0/double(nbFrames));
+        sprintf(windowTitle, "Hello GLFW Blit Buffers | %f ms/frame", 1000.0/double(nbFrames));
         glfwSetWindowTitle(window, windowTitle);
         nbFrames = 0;
         lastTime += 1.0;
     }
 
     // set bg color here via Clearing
-    glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
+    glClearColor(0.2f, 0.3f, 0.3f, 1.0f);
     glClear(GL_COLOR_BUFFER_BIT);
 
-    // Map 1 graphics resource for access by CUDA in stream 0
-    checkCuda( cudaGraphicsMapResources(1, &positionsGraphicResource, 0) );
-    // get the corresponding CudaArray of Resource at array position 0 and mipmap level 0
-    checkCuda( cudaGraphicsResourceGetMappedPointer((void**)&d_VertexData, &myTriangleSize, positionsGraphicResource) );
-    // run CUDA
-    myVerticePositionKernel<<<1, 32>>>(d_VertexData, glfwGetTime());
-    myVerticeColorKernel<<<1, 32>>>(d_VertexData, glfwGetTime());
-    // Unmap 1 resource from Stream 0
-    checkCuda( cudaGraphicsUnmapResources(1, &positionsGraphicResource, 0) );
-
     // Draw
-    // Use the program for the pipeline (keep it to save state to VAO)
     glUseProgram(shaderProgram);
-    glBindVertexArray(VAO); // Program is bound to VAO
+    glBindVertexArray(VAO);
     glDrawArrays(GL_TRIANGLES, 0, 3); // All about the loaded VAO
     glBindVertexArray(0); // To unbind Vertex Array
-    glUseProgram(0);
 
+    glBindFramebuffer(GL_READ_FRAMEBUFFER, framebuffer);
+    glBindFramebuffer(GL_DRAW_FRAMEBUFFER, 0);
+    glBlitFramebuffer(0, 0, fbWidth, fbHeight, 0, 0, fbWidth, fbHeight, GL_COLOR_BUFFER_BIT, GL_NEAREST);
     // Swap front and back buffers
     glfwSwapBuffers(window);
 
-    // Check for Inputs:
+    glBindFramebuffer(GL_FRAMEBUFFER, framebuffer);
+
+    // CHeck for Inputs:
     processInput(window);
     // Poll for and process events
     glfwPollEvents();
   }
-
-  // Cleanup
-  // OpenGL is reference counted and terminated by GLFW
-  checkCuda( cudaGraphicsUnregisterResource(positionsGraphicResource) );
-  checkCuda( cudaDeviceReset() );
+  checkGL();
   glfwDestroyWindow(window);
   glfwTerminate();
   return EXIT_SUCCESS;

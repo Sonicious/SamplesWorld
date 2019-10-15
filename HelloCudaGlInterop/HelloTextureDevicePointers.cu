@@ -255,7 +255,7 @@ int main(int argc, char *argv[])
   GLuint interopTexture;
   pixelRGBA *deviceTextureGraphic;
   size_t deviceTextureGraphicPitch;
-  cudaGraphicsResource *textureGraphicResource;
+  cudaGraphicsResource_t textureGraphicResource = 0;
   cudaArray *textureCudaArray;
 
 
