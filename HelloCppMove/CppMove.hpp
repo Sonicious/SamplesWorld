@@ -4,11 +4,11 @@ class CppMove
 {
 public:
   // standard constructor
-  CppMove();
-  CppMove(const CppMove& other);
-  CppMove(CppMove&& other);
-  CppMove& operator=(const CppMove& other);
-  CppMove& operator=(CppMove&& other);
-  ~CppMove();
+  CppMove() noexcept;
+  CppMove(const CppMove& other) noexcept;
+  CppMove(CppMove&& other) noexcept;
+  CppMove& operator=(const CppMove& other) noexcept;
+  CppMove& operator=(CppMove&& other) noexcept;
+  ~CppMove() noexcept;
   int *data;
 };

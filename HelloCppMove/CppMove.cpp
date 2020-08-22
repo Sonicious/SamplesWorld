@@ -3,7 +3,7 @@
 #include <iostream>
 
 // default constructor
-CppMove::CppMove()
+CppMove::CppMove() noexcept
 {
   std::cout << "default constructor" << std::endl;
   this->data = new int[10];
@@ -14,7 +14,7 @@ CppMove::CppMove()
 }
 
 // copy constructor
-CppMove::CppMove(const CppMove& other)
+CppMove::CppMove(const CppMove& other) noexcept
 {
   std::cout << "Copy constructor" << std::endl;
   this->data = new int[10];
@@ -25,7 +25,7 @@ CppMove::CppMove(const CppMove& other)
 }
 
 // move constructor
-CppMove::CppMove(CppMove&& other)
+CppMove::CppMove(CppMove&& other) noexcept
 {
   std::cout << "Move constructor" << std::endl;
   this->data = other.data;
@@ -33,12 +33,12 @@ CppMove::CppMove(CppMove&& other)
 }
 
 // copy assignment
-CppMove& CppMove::operator=(const CppMove& other)
+CppMove& CppMove::operator=(const CppMove& other) noexcept
 {
   std::cout << "copy assignment" << std::endl;
   if (this != &other)
   {
-    if (!this->data)
+    if (this->data == nullptr)
     {
       this->data = new int[10];
     }
@@ -51,7 +51,7 @@ CppMove& CppMove::operator=(const CppMove& other)
 }
 
 // move assignment
-CppMove& CppMove::operator=(CppMove&& other)
+CppMove& CppMove::operator=(CppMove&& other) noexcept
 {
   std::cout << "move assignment" << std::endl;
   if (this != &other)
@@ -67,7 +67,7 @@ CppMove& CppMove::operator=(CppMove&& other)
 }
 
 // destructor
-CppMove::~CppMove()
+CppMove::~CppMove() noexcept
 {
   std::cout << "default destructor" << std::endl;
   if (this->data)
