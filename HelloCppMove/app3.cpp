@@ -22,7 +22,7 @@ int main(int argc, char const *argv[])
   delete(B);
   std::cout << "raw pointer tests finished" << std::endl;
 
-  std::unique_ptr<CppMove> S(new CppMove());
+  std::unique_ptr<CppMove> S = std::make_unique<CppMove>();
   std::unique_ptr<CppMove> T = myGoodFunc(std::move(S));
   return 0;
 }
