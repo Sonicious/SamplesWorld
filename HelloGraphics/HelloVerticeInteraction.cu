@@ -1,18 +1,19 @@
+// other Headers
 #include <cstdlib>
 #include <cstdio>
 #include <iostream>
 
 #include "glad/glad.h"
 #include <GLFW/glfw3.h>
-#include <GL/gl.h>
 
 // CUDA headers
-#include <cuda_runtime_api.h>
+#include <cuda_runtime.h>
+#include <device_launch_parameters.h>
 #include <cuda_gl_interop.h>
 
 // GL Defines for stuff
-#define GL_VERTEX_POSITION_ATTRIBUTE 0
-#define GL_VERTEX_COLOR_ATTRIBUTE 1
+constexpr int GL_VERTEX_POSITION_ATTRIBUTE = 0;
+constexpr int GL_VERTEX_COLOR_ATTRIBUTE = 1;
 
 // speed controllers per second:
 #define PIF 3.141592654f
@@ -103,7 +104,8 @@ void framebufferSizeCallback(GLFWwindow* window, int width, int height)
 // Vertex Shader Source:
 // input comes to "in vec3 aPos"
 // output goes to "gl_position
-const GLchar *vertexShaderSource = "#version 330 core\n"
+const GLchar *vertexShaderSource =
+  "#version 450 core\n"
   "layout (location = 0) in vec3 vPos;\n"
   "layout (location = 1) in vec4 vColor;\n"
   "out vec4 fColor;\n"
@@ -116,7 +118,8 @@ const GLchar *vertexShaderSource = "#version 330 core\n"
 // Fragment Shader Source:
 // out declares output
 // output is always FragColor
-const GLchar *fragmentShaderSource = "#version 330 core\n"
+const GLchar *fragmentShaderSource =
+  "#version 450 core\n"
   "out vec4 outColor;\n"
   "in vec4 fColor;\n"
   "void main()\n"
@@ -126,10 +129,6 @@ const GLchar *fragmentShaderSource = "#version 330 core\n"
 
 int main(int argc, char *argv[])
 {
-  // read Speed
-  if (argc >= 1)
-  {
-  }
 
   // OpenGL Status Variables:
   GLint  success;
@@ -145,8 +144,8 @@ int main(int argc, char *argv[])
   }
   // Set Error Callback
   glfwSetErrorCallback(glfwErrorCallback);
-  glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3); // We want OpenGL 3.3
-  glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 3);
+  glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 4); // We want OpenGL 4.5
+  glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 5);
   glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
   // Create a windowed mode window and its OpenGL context
   GLFWwindow* window = glfwCreateWindow(1000, 1000, "Hello Cuda GLFW Interop", NULL, NULL);
@@ -237,7 +236,7 @@ int main(int argc, char *argv[])
   // Enable the Vertex Attribute
   glEnableVertexAttribArray(GL_VERTEX_POSITION_ATTRIBUTE);
   glVertexAttribPointer(GL_VERTEX_POSITION_ATTRIBUTE, 3, GL_FLOAT, GL_FALSE, sizeof(VertexData), (GLvoid*)0);
-  // Same for Texture: Pay Attention of Stride and begin
+  // Same for Color: Pay Attention of Stride and begin
   glEnableVertexAttribArray(GL_VERTEX_COLOR_ATTRIBUTE);
   glVertexAttribPointer(GL_VERTEX_COLOR_ATTRIBUTE, 4, GL_FLOAT, GL_FALSE, sizeof(VertexData), (GLvoid*)(3 * sizeof(float)));
 

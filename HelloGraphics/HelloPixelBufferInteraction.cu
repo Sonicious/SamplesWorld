@@ -1,18 +1,19 @@
+// other Headers
 #include <cstdlib>
 #include <cstdio>
 #include <iostream>
 
 #include "glad/glad.h"
 #include <GLFW/glfw3.h>
-#include <GL/gl.h>
 
 // CUDA headers
-#include <cuda_runtime_api.h>
+#include <cuda_runtime.h>
+#include <device_launch_parameters.h>
 #include <cuda_gl_interop.h>
 
-// GL Defines for stuff
-#define GL_VERTEX_POSITION_ATTRIBUTE 0
-#define GL_VERTEX_TEXTURE_COORD_ATTRIBUTE 1
+// GL indices for vertice attributes
+constexpr unsigned int GL_VERTEX_POSITION_ATTRIBUTE_IDX=0;
+constexpr unsigned int GL_VERTEX_COLOR_ATTRIBUTE_IDX=1;
 
 void checkCuda(cudaError_t result)
 {
@@ -41,38 +42,18 @@ void glfwErrorCallback(int error, const char* description)
 
 typedef struct {
   GLfloat position[3];
-  GLfloat textureCoords[2];
+  GLfloat color[4];
 } VertexData;
-
-typedef struct {
-  unsigned char r;
-  unsigned char g;
-  unsigned char b;
-  unsigned char a;
-} pixelRGBA;
 
 ///////////////////////////////////////////////////////////////////////////////
 // CUDA Kernel for image:
 
-__global__ void myTextureKernel(pixelRGBA *renderImageData, size_t width, size_t height, size_t pitch)
+__global__ void myRenderbufferKernel()
 {
-  for (int idy = blockIdx.y * blockDim.y + threadIdx.y;
-         idy < height;
-         idy += blockDim.y * gridDim.y)
-      {
-        for (int idx = blockIdx.x * blockDim.x + threadIdx.x;
-               idx < width;
-               idx += blockDim.x * gridDim.x) 
-            {
-                // according to CUDA documentation (see cudaMallocPitch())
-                pixelRGBA *myPixel = (pixelRGBA*) ((char*)renderImageData + idy*pitch) + idx;
-                myPixel->r = 255;
-                myPixel->g = 255;
-                myPixel->b = 255;
-                myPixel->a = 255;
-            }
-      }
 }
+
+///////////////////////////////////////////////////////////////////////////////
+// IO-Callbacks:
 
 // process all input: query GLFW whether relevant keys are pressed/released this frame and react accordingly
 // ---------------------------------------------------------------------------------------------------------
@@ -84,7 +65,7 @@ void processInput(GLFWwindow *window)
 
 // glfw: whenever the window size changed (by OS or user resize) this callback function executes
 // ---------------------------------------------------------------------------------------------
-void FramebufferSizeCallback(GLFWwindow* window, int width, int height)
+void framebufferSizeCallback(GLFWwindow* window, int width, int height)
 {
     // make sure the viewport matches the new window dimensions; note that width and 
     // height will be significantly larger than specified on retina displays.
@@ -92,41 +73,30 @@ void FramebufferSizeCallback(GLFWwindow* window, int width, int height)
 }
 
 // Vertex Shader Source:
-// input comes to "in vec3 aPos"
-// output goes to "gl_position
-const GLchar *vertexShaderSource = "#version 330 core\n"
-  "layout (location = 0) in vec3 aPos;\n"
-  "layout (location = 1) in vec2 aTexCoord;\n"
-  "out vec2 TexCoord;\n"
-  "void main()\n"
-  "{\n"
-  "   gl_Position = vec4(aPos.x, aPos.y, aPos.z, 1.0);\n"
-  "   TexCoord = aTexCoord;\n"
-  "}\0";
+const GLchar* vertexShaderSource =
+"#version 450 core\n"
+"layout (location = 0) in vec3 vPos;\n" // must be idx of GL_VERTEX_POSITION_ATTRIBUTE_IDX
+"layout (location = 1) in vec4 vColor;\n" // must be idx of GL_VERTEX_COLOR_ATTRIBUTE_IDX
+"layout (location = 0) out vec4 vertexColor;\n"
+"void main()\n"
+"{\n"
+"   gl_Position = vec4(vPos.x, vPos.y, vPos.z, 1.0);\n"
+"   vertexColor = vColor;\n"
+"   flatColor = vec4(1.0, 0, 0, 0);\n"
+"}\0";
 
 // Fragment Shader Source:
-// out declares output
-// output is always FragColor
-const GLchar *fragmentShaderSource = "#version 330 core\n"
-  "out vec4 FragColor;\n"
-  "in vec2 TexCoord;\n"
-  "uniform sampler2D ourTexture;\n"
-  "void main()\n"
-  "{\n"
-  "   FragColor = texture(ourTexture, TexCoord);\n"
-  "}\n\0";
+const GLchar* fragmentShaderSource =
+"#version 450 core\n"
+"layout (location = 0) in vec4 fColor;\n"
+"out vec4 outColor;\n"
+"void main()\n"
+"{\n"
+"   outColor = fColor;\n"
+"}\n\0";
 
 int main(int argc, char *argv[])
 {
-  // read TextureSize
-  int textureWidth = 128;
-  int textureHeight = 128;
-  if (argc >= 3)
-  {
-    textureWidth = atoi(argv[1]);
-    textureHeight = atoi(argv[2]);
-  }
-
   // OpenGL Status Variables:
   GLint  success;
   char infoLog[512];
@@ -141,8 +111,9 @@ int main(int argc, char *argv[])
   }
   // Set Error Callback
   glfwSetErrorCallback(glfwErrorCallback);
-  glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3); // We want OpenGL 3.3
-  glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 3);
+  // We want OpenGL 3.3 Core Profile
+  glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 4);
+  glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 5);
   glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
   // Create a windowed mode window and its OpenGL context
   GLFWwindow* window = glfwCreateWindow(1000, 1000, "Hello Cuda GLFW Interop", NULL, NULL);
@@ -160,16 +131,35 @@ int main(int argc, char *argv[])
       printf("Failed to initialize OpenGL context");
       return EXIT_FAILURE;
   }
-  // Manage Callbacks:
-  glfwSetFramebufferSizeCallback(window, FramebufferSizeCallback);
-    // disable Vsync
+  // Manage Callbacks for resizing:
+  glfwSetFramebufferSizeCallback(window, framebufferSizeCallback);
+  // disable Vsync
   glfwSwapInterval(0);
 
-///////////////////////////////////////////////////////////////////////////////
-// Create a state driven VAO
-  GLuint VAO;
-  glGenVertexArrays(1, &VAO);
-  glBindVertexArray(VAO); // Bind Vertex Array First
+  // get original framebuffer dimensions
+  GLint dims[4] = {0};
+  glGetIntegerv(GL_VIEWPORT, dims);
+  GLint fbWidth = dims[2];
+  GLint fbHeight = dims[3];
+  printf("[LOG] Size: %d x %d\n", fbWidth, fbHeight);
+
+  ///////////////////////////////////////////////////////////////////////////////
+  // Create a Renderbuffer Object and direct the framebuffer to render to
+  // renderbuffer.
+
+  GLuint customFramebuffer, renderbuffer;
+  glGenFramebuffers(1, &customFramebuffer);
+  glBindFramebuffer(GL_FRAMEBUFFER, customFramebuffer);
+  glGenRenderbuffers(1, &renderbuffer);
+  glBindRenderbuffer(GL_RENDERBUFFER, renderbuffer);
+  glRenderbufferStorage(GL_RENDERBUFFER, GL_RGBA, fbWidth, fbHeight);
+  glBindRenderbuffer(GL_RENDERBUFFER, 0);
+  glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_RENDERBUFFER, renderbuffer);
+  if (glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE)
+  {
+    printf("[ERROR] Framebuffer not complete\n");
+  }
+  glViewport(0, 0, fbWidth, fbHeight);
 
 ///////////////////////////////////////////////////////////////////////////////
 // Create Shader Program:
@@ -219,29 +209,35 @@ int main(int argc, char *argv[])
   glDeleteShader(fragmentShader);
 
 ///////////////////////////////////////////////////////////////////////////////
-// Setup Vertex Data, Buffers and configure Vertex Attributes:
+// Create a state driven VAO Setup Vertex Data, Buffers and
+// configure Vertex Attributes
 
-  VertexData vertices[] = {
-    {{-1.0f, -1.0f, 0.0f},{0.0f, 0.0f}},
-    {{ 1.0f, -1.0f, 0.0f},{1.0f, 0.0f}},
-    {{-1.0f,  1.0f, 0.0f},{0.0f, 1.0f}},
-    {{ 1.0f,  1.0f, 0.0f},{1.0f, 1.0f}}
-  };
+  // Create an bind a VAO
+  GLuint vertexArrayObject; // vertex array object
+  glGenVertexArrays(1, &vertexArrayObject);
+  glBindVertexArray(vertexArrayObject); // Bind Vertex Array
+
   // generate buffer and Array for vertices and bind and fill it
-  GLuint VBO;// Vertex Buffer Object, Vertex Array Object
-  glGenBuffers(1, &VBO);
-  glBindBuffer(GL_ARRAY_BUFFER, VBO);
-  // Copy Vertices Data
-  glBufferData(GL_ARRAY_BUFFER, sizeof(vertices), vertices, GL_STATIC_DRAW);
+  GLuint positionsVBO; // Vertex Buffer Object
+  glGenBuffers(1, &positionsVBO);
+  glBindBuffer(GL_ARRAY_BUFFER, positionsVBO);
+  VertexData myTriangle[3] = 
+  {
+    {{-0.8f, -0.8f, 0.0f}, {1.0f, 0.0f, 0.0f, 1.0f}},
+    {{ 0.8f, -0.8f, 0.0f}, {0.0f, 1.0f, 0.0f, 1.0f}},
+    {{ 0.0f,  0.8f, 0.0f}, {0.0f, 0.0f, 1.0f, 1.0f}}
+  };
+  // Upload vertex data to GPU
+  glBufferData(GL_ARRAY_BUFFER, sizeof(myTriangle), myTriangle, GL_STATIC_DRAW);
   // Explain Data via VertexAttributePointers to the shader
-  // By Default, it's disabled
-  // Enable the Vertex Attribute
-  glEnableVertexAttribArray(GL_VERTEX_POSITION_ATTRIBUTE);
-  glVertexAttribPointer(GL_VERTEX_POSITION_ATTRIBUTE, 3, GL_FLOAT, GL_FALSE, 5 * sizeof(float), (GLvoid*)0);
-  // Same for Texture: Pay Attention of Stride and begin
-  glEnableVertexAttribArray(GL_VERTEX_TEXTURE_COORD_ATTRIBUTE);
-  glVertexAttribPointer(GL_VERTEX_TEXTURE_COORD_ATTRIBUTE, 2, GL_FLOAT, GL_FALSE, 5 * sizeof(float), (GLvoid*)(3 * sizeof(float)));
-
+  // First enable stream index, then submit information
+  glEnableVertexAttribArray(GL_VERTEX_POSITION_ATTRIBUTE_IDX);
+  glVertexAttribPointer(GL_VERTEX_POSITION_ATTRIBUTE_IDX, 3, GL_FLOAT, GL_FALSE, sizeof(VertexData), (GLvoid*)0);
+  // Same for Color: Pay Attention of Stride and begin
+  glEnableVertexAttribArray(GL_VERTEX_COLOR_ATTRIBUTE_IDX);
+  glVertexAttribPointer(GL_VERTEX_COLOR_ATTRIBUTE_IDX, 4, GL_FLOAT, GL_FALSE, sizeof(VertexData), (GLvoid*)(3 * sizeof(float))); // offsetof(VertexData, color) benutzen wegen struct padding
+  // Use the program of the pipeline
+  glUseProgram(shaderProgram);
   // possible unbinding:
   glBindBuffer(GL_ARRAY_BUFFER, 0);
   glBindVertexArray(0);
@@ -250,29 +246,11 @@ int main(int argc, char *argv[])
   //glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
 
 ///////////////////////////////////////////////////////////////////////////////
-// CUDA Texture Interaction
-
-  GLuint interopTexture;
-  pixelRGBA *deviceTextureGraphic;
-  size_t deviceTextureGraphicPitch;
-  cudaGraphicsResource_t textureGraphicResource = 0;
-  cudaArray *textureCudaArray;
-
-
-  // calculate Data size and MemAlloc Cuda Buffer
-  checkCuda( cudaMallocPitch(&deviceTextureGraphic, &deviceTextureGraphicPitch, textureWidth * sizeof(pixelRGBA), textureHeight) );
-  
-  // Here the Calculations for the interop-Data
-  glGenTextures(1, &interopTexture);
-  glBindTexture(GL_TEXTURE_2D, interopTexture);
-  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_BORDER);	
-  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_BORDER);
-  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
-  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
-  // Just allocate, but no copy to it:
-  glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, textureWidth, textureHeight, 0, GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
-  // Register OpenGL texture to a cudaGraphicsResource for CUDA
-  checkCuda( cudaGraphicsGLRegisterImage( &textureGraphicResource, interopTexture, GL_TEXTURE_2D, cudaGraphicsRegisterFlagsWriteDiscard));
+// Cuda Pixel Buffer Interop
+// 
+  cudaGraphicsResource_t myResource;
+  GLuint interopPBO;
+  glGenBuffers(1, &interopPBO);
 
 ///////////////////////////////////////////////////////////////////////////////
 // Render Loop
@@ -294,28 +272,33 @@ int main(int argc, char *argv[])
     }
 
     // set bg color here via Clearing
-    glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
+    glClearColor(0.2f, 0.3f, 0.3f, 1.0f);
     glClear(GL_COLOR_BUFFER_BIT);
 
-    // run CUDA
-    myTextureKernel<<<16, 32>>>(deviceTextureGraphic, textureWidth, textureHeight, deviceTextureGraphicPitch);
-    // Map 1 graphics resource for access by CUDA in stream 0
-    checkCuda( cudaGraphicsMapResources(1, &textureGraphicResource, 0) );
-    // get the corresponding CudaArray of Resource at array position 0 and mipmap level 0
-    checkCuda( cudaGraphicsSubResourceGetMappedArray(&textureCudaArray, textureGraphicResource, 0, 0) );
-    // copy Data to CudaArray from deviceRenderBuffer, wOffset=0, hOffset=0
-    checkCuda( cudaMemcpy2DToArray(textureCudaArray, 0, 0, deviceTextureGraphic, deviceTextureGraphicPitch, textureWidth * sizeof(pixelRGBA), textureHeight, cudaMemcpyDeviceToDevice));
-    // Unmap 1 resource from Stream 0
-    checkCuda( cudaGraphicsUnmapResources(1, &textureGraphicResource, 0) );
-
     // Draw
-    // Use the program for the pipeline (keep it to save state to VAO)
+    // Bind the vertex array object and all its state
+    glBindVertexArray(vertexArrayObject);
+    // use shader program
     glUseProgram(shaderProgram);
-    glBindVertexArray(VAO); checkGL(); // Program is bound to VAO
-    glDrawArrays(GL_TRIANGLE_STRIP, 0, 4); // All about the loaded VAO
-    glBindVertexArray(0); // To unbind Vertex Array
+    // draw the vertices as single triangles according to program
+    glDrawArrays(GL_TRIANGLES, 0, 3);
+    // unbind everything
+    glBindVertexArray(0);
     glUseProgram(0);
+    
+    // now work with the Buffers
+    glBindFramebuffer(GL_FRAMEBUFFER, 0);
+    glBindFramebuffer(GL_READ_FRAMEBUFFER, customFramebuffer);
+    glBindBuffer(GL_PIXEL_PACK_BUFFER, interopPBO);
+    glReadPixels(0, 0, fbWidth, fbHeight, GL_RGBA, GL_FLOAT, 0);
+    glBindBuffer(GL_READ_FRAMEBUFFER, 0);
+    // do stuff with PBO here
+    checkCuda( cudaGraphicsGLRegisterBuffer(&myResource, positionsVBO, cudaGraphicsRegisterFlagsReadOnly) );
+    checkCuda( cudaGraphicsUnregisterResource(myResource) );
 
+    glBindBuffer(GL_DRAW_FRAMEBUFFER, 0);
+    
+    
     // Swap front and back buffers
     glfwSwapBuffers(window);
 
@@ -325,11 +308,9 @@ int main(int argc, char *argv[])
     glfwPollEvents();
   }
 
+  checkGL();
   // Cleanup
   // OpenGL is reference counted and terminated by GLFW
-  checkCuda( cudaGraphicsUnregisterResource(textureGraphicResource) );
-  checkCuda( cudaFree(deviceTextureGraphic) );
-  checkCuda( cudaDeviceReset() );
   glfwDestroyWindow(window);
   glfwTerminate();
   return EXIT_SUCCESS;

@@ -1,27 +1,16 @@
+// other Headers
 #include <cstdlib>
 #include <cstdio>
 #include <iostream>
 
 #include "glad/glad.h"
 #include <GLFW/glfw3.h>
+#include <glm/glm.hpp>
+#include <glm/gtc/matrix_transform.hpp>
 
-// CUDA headers
-#include <cuda_runtime_api.h>
-#include <cuda_gl_interop.h>
-
-// GL Defines for stuff
-#define GL_VERTEX_POSITION_ATTRIBUTE 0
-#define GL_VERTEX_COLOR_ATTRIBUTE 1
-
-void checkCuda(cudaError_t result)
-{
-    if (result != cudaSuccess)
-    {
-        printf("[ERROR] %s\n", cudaGetErrorName(result));
-        printf("[ERROR] %s\n", cudaGetErrorString(result));
-        exit(EXIT_FAILURE);
-    }
-}
+// GL indices for vertice attributes
+constexpr unsigned int GL_VERTEX_POSITION_ATTRIBUTE_IDX=0;
+constexpr unsigned int GL_VERTEX_COLOR_ATTRIBUTE_IDX=1;
 
 void checkGL()
 {
@@ -42,13 +31,6 @@ typedef struct {
   GLfloat position[3];
   GLfloat color[4];
 } VertexData;
-
-///////////////////////////////////////////////////////////////////////////////
-// CUDA Kernel for image:
-
-__global__ void myFramebufferKernel()
-{
-}
 
 ///////////////////////////////////////////////////////////////////////////////
 // IO-Callbacks:
@@ -73,22 +55,23 @@ void framebufferSizeCallback(GLFWwindow* window, int width, int height)
 // Vertex Shader Source:
 // input comes to "in vec3 aPos"
 // output goes to "gl_position
-const GLchar *vertexShaderSource = "#version 330 core\n"
-  "layout (location = 0) in vec3 vPos;\n"
-  "layout (location = 1) in vec4 vColor;\n"
+const GLchar *vertexShaderSource =
+  "#version 450 core\n"
+  "layout (location = 0) in vec3 vPos;\n" // must be idx of GL_VERTEX_POSITION_ATTRIBUTE_IDX
+  "layout (location = 1) in vec4 vColor;\n" // must be idx of GL_VERTEX_COLOR_ATTRIBUTE_IDX
   "out vec4 fColor;\n"
+  "uniform mat4 MVP;\n" // constant which must be uploaded from CPU
   "void main()\n"
   "{\n"
-  "   gl_Position = vec4(vPos.x, vPos.y, vPos.z, 1.0);\n"
+  "   gl_Position = MVP * vec4(vPos.x, vPos.y, vPos.z, 1.0);\n"
   "   fColor = vColor;\n"
   "}\0";
 
 // Fragment Shader Source:
-// out declares output
-// output is always FragColor
-const GLchar *fragmentShaderSource = "#version 330 core\n"
-  "out vec4 outColor;\n"
+const GLchar *fragmentShaderSource =
+  "#version 450 core\n"
   "in vec4 fColor;\n"
+  "out vec4 outColor;\n"
   "void main()\n"
   "{\n"
   "   outColor = fColor;\n"
@@ -111,11 +94,11 @@ int main(int argc, char *argv[])
   // Set Error Callback
   glfwSetErrorCallback(glfwErrorCallback);
   // We want OpenGL 3.3 Core Profile
-  glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3);
-  glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 3);
+  glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 4);
+  glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 5);
   glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
   // Create a windowed mode window and its OpenGL context
-  GLFWwindow* window = glfwCreateWindow(1000, 1000, "Hello Cuda GLFW Interop", NULL, NULL);
+  GLFWwindow* window = glfwCreateWindow(800, 600, "Hello Graphics", NULL, NULL);
   if (!window)
   {
     printf("Failed to create GLFW window!");
@@ -130,40 +113,18 @@ int main(int argc, char *argv[])
       printf("Failed to initialize OpenGL context");
       return EXIT_FAILURE;
   }
-  // Manage Callbacks:
+  // Manage Callbacks for resizing:
   glfwSetFramebufferSizeCallback(window, framebufferSizeCallback);
   // disable Vsync
   glfwSwapInterval(0);
 
-  // get original framebuffer dimensions
-  GLint dims[4] = {0};
-  glGetIntegerv(GL_VIEWPORT, dims);
-  GLint fbWidth = dims[2];
-  GLint fbHeight = dims[3];
-  printf("[LOG] Size: %d x %d\n", fbWidth, fbHeight);
-
-///////////////////////////////////////////////////////////////////////////////
-// Manage Framebuffer and Renderbuffer for off-screen rendering
-
-  GLuint framebuffer, renderbuffer;
-  glGenFramebuffers(1, &framebuffer);
-  glBindFramebuffer(GL_FRAMEBUFFER, framebuffer);
-  glGenRenderbuffers(1, &renderbuffer);
-  glBindRenderbuffer(GL_RENDERBUFFER, renderbuffer);
-  glRenderbufferStorage(GL_RENDERBUFFER, GL_RGBA, fbWidth, fbHeight);
-  glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_RENDERBUFFER, renderbuffer);
-  if(glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE)
-  {
-    printf("[ERROR] Framebuffer not complete\n");
-  }
-  glBindFramebuffer(GL_FRAMEBUFFER, framebuffer);
-  glViewport(0, 0, fbWidth, fbHeight);
-
-///////////////////////////////////////////////////////////////////////////////
-// Create a state driven VAO
-  GLuint VAO; // vertex array object
-  glGenVertexArrays(1, &VAO);
-  glBindVertexArray(VAO); // Bind Vertex Array First
+  // get original context dimensions
+  GLint contextDims[4] = {0};
+  glGetIntegerv(GL_VIEWPORT, contextDims);
+  GLint contextWidth = contextDims[2];
+  GLint contextHeight = contextDims[3];
+  printf("[LOG] Size: %d x %d\n", contextWidth, contextHeight);
+  glViewport(0, 0, contextWidth, contextHeight);
 
 ///////////////////////////////////////////////////////////////////////////////
 // Create Shader Program:
@@ -213,7 +174,13 @@ int main(int argc, char *argv[])
   glDeleteShader(fragmentShader);
 
 ///////////////////////////////////////////////////////////////////////////////
-// Setup Vertex Data, Buffers and configure Vertex Attributes
+// Create a state driven VAO Setup Vertex Data, Buffers and
+// configure Vertex Attributes
+
+  // Create an bind a VAO
+  GLuint vertexArrayObject; // vertex array object
+  glGenVertexArrays(1, &vertexArrayObject);
+  glBindVertexArray(vertexArrayObject); // Bind Vertex Array
 
   // generate buffer and Array for vertices and bind and fill it
   GLuint glPositionsVBO; // Vertex Buffer Object
@@ -225,40 +192,56 @@ int main(int argc, char *argv[])
     {{ 0.8f, -0.8f, 0.0f}, {0.0f, 1.0f, 0.0f, 1.0f}},
     {{ 0.0f,  0.8f, 0.0f}, {0.0f, 0.0f, 1.0f, 1.0f}}
   };
-  // Allocate Vertices Data
+  // Upload vertex data to GPU
   glBufferData(GL_ARRAY_BUFFER, sizeof(myTriangle), myTriangle, GL_STATIC_DRAW);
   // Explain Data via VertexAttributePointers to the shader
-  // By Default, it's disabled
-  // Enable the Vertex Attribute
-  glEnableVertexAttribArray(GL_VERTEX_POSITION_ATTRIBUTE);
-  glVertexAttribPointer(GL_VERTEX_POSITION_ATTRIBUTE, 3, GL_FLOAT, GL_FALSE, sizeof(VertexData), (GLvoid*)0);
-  // Same for Texture: Pay Attention of Stride and begin
-  glEnableVertexAttribArray(GL_VERTEX_COLOR_ATTRIBUTE);
-  glVertexAttribPointer(GL_VERTEX_COLOR_ATTRIBUTE, 4, GL_FLOAT, GL_FALSE, sizeof(VertexData), (GLvoid*)(3 * sizeof(float)));
-
+  // First enable stream index, then submit information
+  glEnableVertexAttribArray(GL_VERTEX_POSITION_ATTRIBUTE_IDX);
+  glVertexAttribPointer(GL_VERTEX_POSITION_ATTRIBUTE_IDX, 3, GL_FLOAT, GL_FALSE, sizeof(VertexData), (GLvoid*) offsetof(VertexData,position));
+  // Same for Color: Pay Attention of Stride and begin
+  glEnableVertexAttribArray(GL_VERTEX_COLOR_ATTRIBUTE_IDX);
+  glVertexAttribPointer(GL_VERTEX_COLOR_ATTRIBUTE_IDX, 4, GL_FLOAT, GL_FALSE, sizeof(VertexData), (GLvoid*) offsetof(VertexData, color)); // offsetof(VertexData, color) benutzen wegen struct padding
   // possible unbinding:
   glBindBuffer(GL_ARRAY_BUFFER, 0);
   glBindVertexArray(0);
 
+  ///////////////////////////////////////////////////////////////////////////////
+  // Projection
+
+  // Projection matrix : 45° Field of View, 4:3 ratio, display range : 0.1 unit <-> 100 units
+  glm::mat4 projectionMat = glm::perspective(glm::radians(45.0f), (float)4.0 / (float)3.0, 0.1f, 100.0f);
+  // Or, for an ortho camera :
+  //glm::mat4 Projection = glm::ortho(-10.0f,10.0f,-10.0f,10.0f,0.0f,100.0f); // In world coordinates
+
+  // Camera matrix
+  glm::mat4 viewMat = glm::lookAt(
+    glm::vec3(1, 1, 2), // Camera is at (1,3,2), in World Space
+    glm::vec3(0, 0, 0), // and looks at the origin
+    glm::vec3(0, 1, 0)  // Head is up (set to 0,-1,0 to look upside-down)
+  );
+
+  // Model matrix : an identity matrix (model will be at the origin)
+  glm::mat4 modelMat = glm::mat4(1.0f);
+  // Our ModelViewProjection : multiplication of our 3 matrices
+  glm::mat4 mvpMat = projectionMat * viewMat * modelMat; // Remember, matrix multiplication is the other way around
+  // Get MVP Handle from Program
+  GLuint MatrixID = glGetUniformLocation(shaderProgram, "MVP");
+  
+  ///////////////////////////////////////////////////////////////////////////////
+  // Last Setup points
+   
+  // Dark blue background
+  glClearColor(0.0f, 0.0f, 0.4f, 0.0f);
+  // Enable depth test
+  glEnable(GL_DEPTH_TEST);
+  // Accept fragment if it closer to the camera than the former one
+  glDepthFunc(GL_LESS);
   // uncomment this call to draw in wireframe polygons.
   //glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
 
 ///////////////////////////////////////////////////////////////////////////////
-// Cuda Pixel Buffer Interop
-
-  cudaGraphicsResource_t renderbufferGraphicResource = 0;
-  checkCuda( cudaGraphicsGLRegisterImage(
-    &renderbufferGraphicResource,
-    renderbuffer,
-    GL_RENDERBUFFER,
-    cudaGraphicsMapFlagsNone
-  ) );
-
-cudaArray_t cudaArrayData = 0;
-cudaMipmappedArray_t cudaMipmappedArrayData = 0;
-
-///////////////////////////////////////////////////////////////////////////////
 // Render Loop
+
   double lastTime = glfwGetTime();
   int nbFrames = 0;
   char windowTitle[100];
@@ -276,33 +259,22 @@ cudaMipmappedArray_t cudaMipmappedArrayData = 0;
         lastTime += 1.0;
     }
 
-    // set bg color here via Clearing
-    glClearColor(0.2f, 0.3f, 0.3f, 1.0f);
-    glClear(GL_COLOR_BUFFER_BIT);
-
-    // Draw
-    // Use the program for the pipeline (keep it to save state to VAO)
+    // Clear the screen and the z Buffer
+    glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+    // Bind the vertex array object and all its state
+    glBindVertexArray(vertexArrayObject);
+    // activate the shaders
     glUseProgram(shaderProgram);
-    glBindVertexArray(VAO); // Program is bound to VAO
-    glDrawArrays(GL_TRIANGLES, 0, 3); // All about the loaded VAO
-    glBindVertexArray(0); // To unbind Vertex Array
+    // update the MVP in the currently activated shader
+    glUniformMatrix4fv(MatrixID, 1, GL_FALSE, &mvpMat[0][0]);
+    // draw the vertices as single triangles according to program
+    glDrawArrays(GL_TRIANGLES, 0, 3);
+    // unbind everything
+    glBindVertexArray(0);
     glUseProgram(0);
-
-    checkCuda( cudaGraphicsMapResources(1, &renderbufferGraphicResource, 0) );
-    checkCuda( cudaGraphicsSubResourceGetMappedArray(&cudaArrayData, renderbufferGraphicResource, 0, 0) );
-    checkCuda( cudaGraphicsResourceGetMappedMipmappedArray(&cudaMipmappedArrayData, renderbufferGraphicResource) );
-    myFramebufferKernel<<<16, 32>>>();
-    checkCuda( cudaGraphicsUnmapResources(1, &renderbufferGraphicResource, 0) );
-
-    glBindFramebuffer(GL_READ_FRAMEBUFFER, framebuffer);
-    glBindFramebuffer(GL_DRAW_FRAMEBUFFER, 0);
-    glBlitFramebuffer(0, 0, fbWidth, fbHeight, 0, 0, fbWidth, fbHeight, GL_COLOR_BUFFER_BIT, GL_NEAREST);
     
     // Swap front and back buffers
     glfwSwapBuffers(window);
-
-    glBindFramebuffer(GL_FRAMEBUFFER, framebuffer);
-
     // Check for Inputs:
     processInput(window);
     // Poll for and process events

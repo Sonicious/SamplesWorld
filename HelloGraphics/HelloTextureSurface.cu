@@ -1,18 +1,19 @@
+// other Headers
 #include <cstdlib>
 #include <cstdio>
 #include <iostream>
 
 #include "glad/glad.h"
 #include <GLFW/glfw3.h>
-#include <GL/gl.h>
 
 // CUDA headers
-#include <cuda_runtime_api.h>
+#include <cuda_runtime.h>
+#include <device_launch_parameters.h>
 #include <cuda_gl_interop.h>
 
 // GL Defines for stuff
-#define GL_VERTEX_POSITION_ATTRIBUTE 0
-#define GL_VERTEX_TEXTURE_COORD_ATTRIBUTE 1
+constexpr int GL_VERTEX_POSITION_ATTRIBUTE = 0;
+constexpr int GL_VERTEX_TEXTURE_COORD_ATTRIBUTE = 1;
 
 void checkCuda(cudaError_t result)
 {
@@ -57,10 +58,14 @@ __global__ void myTextureKernel(cudaSurfaceObject_t SurfObj, size_t width, size_
                idx < width;
                idx += blockDim.x * gridDim.x) 
             {
-                uchar4 data = make_uchar4(255,255,255,255);
-                // Read from input surface
-                //surf2Dread(&data,  inputSurfObj, x * sizeof(uchar4), y);
-                // Write to output surface
+                uchar4 data = make_uchar4(0,0,0,255);
+                // Read from surface
+                surf2Dread(&data,  SurfObj, idx * sizeof(uchar4), idy);
+                // change value
+                data.x += 1;
+                data.y = 0;
+                data.z = 0;
+                // Write to surface
                 surf2Dwrite(data, SurfObj, idx * sizeof(uchar4), idy);
             }
       }
@@ -89,7 +94,8 @@ void framebufferSizeCallback(GLFWwindow* window, int width, int height)
 // Vertex Shader Source:
 // input comes to "in vec3 aPos"
 // output goes to "gl_position
-const GLchar *vertexShaderSource = "#version 330 core\n"
+const GLchar *vertexShaderSource =
+  "#version 450 core\n"
   "layout (location = 0) in vec3 aPos;\n"
   "layout (location = 1) in vec2 aTexCoord;\n"
   "out vec2 TexCoord;\n"
@@ -102,7 +108,8 @@ const GLchar *vertexShaderSource = "#version 330 core\n"
 // Fragment Shader Source:
 // out declares output
 // output is always FragColor
-const GLchar *fragmentShaderSource = "#version 330 core\n"
+const GLchar *fragmentShaderSource =
+  "#version 330 core\n"
   "out vec4 FragColor;\n"
   "in vec2 TexCoord;\n"
   "uniform sampler2D ourTexture;\n"
@@ -136,8 +143,8 @@ int main(int argc, char *argv[])
   }
   // Set Error Callback
   glfwSetErrorCallback(glfwErrorCallback);
-  glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3); // We want OpenGL 3.3
-  glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 3);
+  glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 4); // We want OpenGL 4.5
+  glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 5);
   glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
   // Create a windowed mode window and its OpenGL context
   GLFWwindow* window = glfwCreateWindow(1000, 1000, "Hello Cuda GLFW Interop", NULL, NULL);

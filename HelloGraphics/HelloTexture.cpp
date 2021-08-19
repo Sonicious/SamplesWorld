@@ -1,3 +1,4 @@
+// other Headers
 #include <cstdlib>
 #include <cstdio>
 #include <iostream>
@@ -5,8 +6,29 @@
 #include "glad/glad.h"
 #include <GLFW/glfw3.h>
 
-// GL Defines for stuff
-#define GL_VERTEX_POSITION_ATTRIBUTE 0
+// GL indices for vertice attributes
+constexpr unsigned int GL_VERTEX_POSITION_ATTRIBUTE_IDX=0;
+constexpr unsigned int GL_VERTEX_COLOR_ATTRIBUTE_IDX=1;
+
+void checkGL()
+{
+  GLenum error = glGetError();
+  if(error != GL_NO_ERROR)
+  {
+    printf("[ERROR] %d\n", error);
+    exit(EXIT_FAILURE);
+  }
+}
+
+void glfwErrorCallback(int error, const char* description)
+{
+  printf("Error: %s\n", description);
+}
+
+typedef struct {
+  GLfloat position[3];
+  GLfloat color[4];
+} VertexData;
 
 ///////////////////////////////////////////////////////////////////////////////
 // IO-Callbacks:
@@ -28,55 +50,40 @@ void framebufferSizeCallback(GLFWwindow* window, int width, int height)
     glViewport(0, 0, width, height);
 }
 
-// glfw: Error Callback for GLFW
-// -----------------------------
-void error_callback(int error, const char* description)
-{
-  printf("Error: %s\n", description);
-}
-
-void checkGL()
-{
-  GLenum error = glGetError();
-  if(error != GL_NO_ERROR)
-  {
-    printf("[ERROR] %d\n", error);
-    exit(EXIT_FAILURE);
-  }
-  else
-  {
-    printf("[LOG] GL ok so far\n");
-  }
-}
-
 // Vertex Shader Source:
 // input comes to "in vec3 aPos"
 // output goes to "gl_position
-const GLchar *vertexShaderSource = "#version 330 core\n"
-  "layout (location = 0) in vec3 aPos;\n"
+const GLchar *vertexShaderSource =
+  "#version 450 core\n"
+  "layout (location = 0) in vec3 vPos;\n" // must be idx of GL_VERTEX_POSITION_ATTRIBUTE_IDX
+  "layout (location = 1) in vec4 vColor;\n" // must be idx of GL_VERTEX_COLOR_ATTRIBUTE_IDX
+  "layout (location = 0) out vec4 vertexColor;\n"
+  "layout (location = 1) out vec4 flatColor;\n"
   "void main()\n"
   "{\n"
-  "   gl_Position = vec4(aPos.x, aPos.y, aPos.z, 1.0);\n"
+  "   gl_Position = vec4(vPos.x, vPos.y, vPos.z, 1.0);\n"
+  "   flatColor = vColor;\n"
+  "   flatColor = vec4(1.0, 0, 0, 0);\n"
   "}\0";
 
 // Fragment Shader Source:
-// out declares output
-// output is always FragColor
-const GLchar *fragmentShaderSource = "#version 330 core\n"
-  "out vec4 FragColor;\n"
+const GLchar *fragmentShaderSource =
+  "#version 450 core\n"
+  "layout (location = 1) in vec4 fColor;\n"
+  "out vec4 outColor;\n"
   "void main()\n"
   "{\n"
-  "   FragColor = vec4(1.0f, 0.5f, 0.2f, 1.0f);\n"
+  "   outColor = fColor;\n"
   "}\n\0";
 
-int main(void)
+int main(int argc, char *argv[])
 {
   // OpenGL Status Variables:
   GLint  success;
   char infoLog[512];
 
 ///////////////////////////////////////////////////////////////////////////////
-// Initialize everything till Rendering-Loop:
+// Initialize everything for GLFW
 
   // Initialize the library
   if (!glfwInit())
@@ -84,14 +91,13 @@ int main(void)
     return EXIT_FAILURE;
   }
   // Set Error Callback
-  glfwSetErrorCallback(error_callback);
-  glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3); // We want OpenGL 3.2
-  glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 2);
-  glfwWindowHint(GLFW_OPENGL_FORWARD_COMPAT, GL_TRUE);
+  glfwSetErrorCallback(glfwErrorCallback);
+  // We want OpenGL 3.3 Core Profile
+  glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 4);
+  glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 5);
   glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
-  glfwWindowHint(GLFW_COCOA_RETINA_FRAMEBUFFER, GLFW_FALSE);
   // Create a windowed mode window and its OpenGL context
-  GLFWwindow* window = glfwCreateWindow(600, 600, "Hello World", NULL, NULL);
+  GLFWwindow* window = glfwCreateWindow(1000, 1000, "Hello Cuda GLFW Interop", NULL, NULL);
   if (!window)
   {
     printf("Failed to create GLFW window!");
@@ -106,7 +112,7 @@ int main(void)
       printf("Failed to initialize OpenGL context");
       return EXIT_FAILURE;
   }
-  // Manage Callbacks:
+  // Manage Callbacks for resizing:
   glfwSetFramebufferSizeCallback(window, framebufferSizeCallback);
   // disable Vsync
   glfwSwapInterval(0);
@@ -119,23 +125,21 @@ int main(void)
   printf("[LOG] Size: %d x %d\n", fbWidth, fbHeight);
 
 ///////////////////////////////////////////////////////////////////////////////
-// Manage Framebuffer and Renderbuffer for off-screen rendering
+// Create a Renderbuffer Object and direct the framebuffer to render to
+// renderbuffer.
 
-  GLuint framebuffer, renderbuffer;
-  glGenFramebuffers(1, &framebuffer);
-  glBindFramebuffer(GL_FRAMEBUFFER, framebuffer);
+  GLuint customFramebuffer, renderbuffer;
+  glGenFramebuffers(1, &customFramebuffer);
+  glBindFramebuffer(GL_FRAMEBUFFER, customFramebuffer);
   glGenRenderbuffers(1, &renderbuffer);
   glBindRenderbuffer(GL_RENDERBUFFER, renderbuffer);
-  //glRenderbufferStorage(GL_RENDERBUFFER, GL_RGB, fbWidth, fbHeight);
-  // Anti-Aliasing:
-  GLuint superSamplingFactor = 2;
-  glRenderbufferStorageMultisample(GL_RENDERBUFFER, superSamplingFactor, GL_RGB, fbWidth, fbHeight);
+  glRenderbufferStorage(GL_RENDERBUFFER, GL_RGBA, fbWidth, fbHeight);
+  glBindRenderbuffer(GL_RENDERBUFFER, 0);
   glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_RENDERBUFFER, renderbuffer);
   if(glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE)
   {
     printf("[ERROR] Framebuffer not complete\n");
   }
-  glBindFramebuffer(GL_FRAMEBUFFER, framebuffer);
   glViewport(0, 0, fbWidth, fbHeight);
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -151,7 +155,8 @@ int main(void)
   if(!success)
   {
     glGetShaderInfoLog(vertexShader, 512, NULL, infoLog);
-    //printf("Vertex Shader Compilation Failed:\n%s\n",infoLog);
+    printf("Vertex Shader Compilation Failed:\n%s\n",infoLog);
+    return EXIT_FAILURE;
   }
   // Create fragment shader, load and compile
   GLuint fragmentShader;
@@ -164,6 +169,7 @@ int main(void)
   {
     glGetShaderInfoLog(vertexShader, 512, NULL, infoLog);
     printf("Fragment Shader Compilation Failed:\n%s\n",infoLog);
+    return EXIT_FAILURE;
   }
   // Link Shaders together to a program
   GLuint shaderProgram;
@@ -176,35 +182,43 @@ int main(void)
   {
       glGetProgramInfoLog(shaderProgram, 512, NULL, infoLog);
       printf("Program Linking Failed:\n%s\n",infoLog);
+      return EXIT_FAILURE;
   }
-  // Use the program for the pipeline
-  glUseProgram(shaderProgram);
-  // delete Shaders (not needed anymore)
+
+  // delete Shaders (not needed anymore, because completely compiled and so on)
   glDeleteShader(vertexShader);
   glDeleteShader(fragmentShader);
 
 ///////////////////////////////////////////////////////////////////////////////
-// Setup Vertex Data, Buffers and configure Vertex Attributes:
+// Create a state driven VAO Setup Vertex Data, Buffers and
+// configure Vertex Attributes
 
-  float vertices[] = {
-    -0.8f, -0.8f, 0.0f,
-     0.8f, -0.8f, 0.0f,
-     0.0f,  0.8f, 0.0f
-  };  
+  // Create an bind a VAO
+  GLuint vertexArrayObject; // vertex array object
+  glGenVertexArrays(1, &vertexArrayObject);
+  glBindVertexArray(vertexArrayObject); // Bind Vertex Array
 
   // generate buffer and Array for vertices and bind and fill it
-  GLuint VBO, VAO;// Vertex Buffer Object, Vertex Array Object
-  glGenVertexArrays(1, &VAO);
-  glBindVertexArray(VAO); // Bind Vertex Array First
-  glGenBuffers(1, &VBO);
-  glBindBuffer(GL_ARRAY_BUFFER, VBO);
-  // Copy Vertices Data
-  glBufferData(GL_ARRAY_BUFFER, sizeof(vertices), vertices, GL_STATIC_DRAW);
-  // Enable the Vertex Attribute
-  glEnableVertexAttribArray(GL_VERTEX_POSITION_ATTRIBUTE); 
-  // Explain Data via VertexAttributePointers
-  glVertexAttribPointer(GL_VERTEX_POSITION_ATTRIBUTE, 3, GL_FLOAT, GL_FALSE, 3 * sizeof(float), (GLvoid*)0);
-
+  GLuint glPositionsVBO; // Vertex Buffer Object
+  glGenBuffers(1, &glPositionsVBO);
+  glBindBuffer(GL_ARRAY_BUFFER, glPositionsVBO);
+  VertexData myTriangle[3] = 
+  {
+    {{-0.8f, -0.8f, 0.0f}, {1.0f, 0.0f, 0.0f, 1.0f}},
+    {{ 0.8f, -0.8f, 0.0f}, {0.0f, 1.0f, 0.0f, 1.0f}},
+    {{ 0.0f,  0.8f, 0.0f}, {0.0f, 0.0f, 1.0f, 1.0f}}
+  };
+  // Upload vertex data to GPU
+  glBufferData(GL_ARRAY_BUFFER, sizeof(myTriangle), myTriangle, GL_STATIC_DRAW);
+  // Explain Data via VertexAttributePointers to the shader
+  // First enable stream index, then submit information
+  glEnableVertexAttribArray(GL_VERTEX_POSITION_ATTRIBUTE_IDX);
+  glVertexAttribPointer(GL_VERTEX_POSITION_ATTRIBUTE_IDX, 3, GL_FLOAT, GL_FALSE, sizeof(VertexData), (GLvoid*)0);
+  // Same for Color: Pay Attention of Stride and begin
+  glEnableVertexAttribArray(GL_VERTEX_COLOR_ATTRIBUTE_IDX);
+  glVertexAttribPointer(GL_VERTEX_COLOR_ATTRIBUTE_IDX, 4, GL_FLOAT, GL_FALSE, sizeof(VertexData), (GLvoid*)(3 * sizeof(float))); // offsetof(VertexData, color) benutzen wegen struct padding
+  // Use the program of the pipeline
+  glUseProgram(shaderProgram);
   // possible unbinding:
   glBindBuffer(GL_ARRAY_BUFFER, 0);
   glBindVertexArray(0);
@@ -225,7 +239,7 @@ int main(void)
     nbFrames++;
     if ( currentTime - lastTime >= 1.0 ){ // If last prinf() was more than 1 sec ago
         // printf and reset timer
-        sprintf(windowTitle, "Hello GLFW Blit Buffers | %f ms/frame", 1000.0/double(nbFrames));
+        sprintf(windowTitle, "Hello Cuda GLFW Interop | %f ms/frame", 1000.0/double(nbFrames));
         glfwSetWindowTitle(window, windowTitle);
         nbFrames = 0;
         lastTime += 1.0;
@@ -236,25 +250,32 @@ int main(void)
     glClear(GL_COLOR_BUFFER_BIT);
 
     // Draw
-    glUseProgram(shaderProgram);
-    glBindVertexArray(VAO);
-    glDrawArrays(GL_TRIANGLES, 0, 3); // All about the loaded VAO
-    glBindVertexArray(0); // To unbind Vertex Array
+    // Bind the vertex array object and all its state
+    glBindVertexArray(vertexArrayObject);
+    // draw the vertices as single triangles according to program
+    glDrawArrays(GL_TRIANGLES, 0, 3);
+    // unbind everything
+    glBindVertexArray(0);
+    glUseProgram(0);
 
-    glBindFramebuffer(GL_READ_FRAMEBUFFER, framebuffer);
+    glBindFramebuffer(GL_READ_FRAMEBUFFER, customFramebuffer);
     glBindFramebuffer(GL_DRAW_FRAMEBUFFER, 0);
     glBlitFramebuffer(0, 0, fbWidth, fbHeight, 0, 0, fbWidth, fbHeight, GL_COLOR_BUFFER_BIT, GL_NEAREST);
+    
     // Swap front and back buffers
     glfwSwapBuffers(window);
 
-    glBindFramebuffer(GL_FRAMEBUFFER, framebuffer);
+    glBindFramebuffer(GL_FRAMEBUFFER, customFramebuffer);
 
-    // CHeck for Inputs:
+    // Check for Inputs:
     processInput(window);
     // Poll for and process events
     glfwPollEvents();
   }
+
   checkGL();
+  // Cleanup
+  // OpenGL is reference counted and terminated by GLFW
   glfwDestroyWindow(window);
   glfwTerminate();
   return EXIT_SUCCESS;
