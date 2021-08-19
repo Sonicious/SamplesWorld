@@ -56,7 +56,7 @@ void framebufferSizeCallback(GLFWwindow* window, int width, int height)
 // input comes to "in vec3 aPos"
 // output goes to "gl_position
 const GLchar *vertexShaderSource =
-  "#version 450 core\n"
+  "#version 410 core\n"
   "layout (location = 0) in vec3 vPos;\n" // must be idx of GL_VERTEX_POSITION_ATTRIBUTE_IDX
   "layout (location = 1) in vec4 vColor;\n" // must be idx of GL_VERTEX_COLOR_ATTRIBUTE_IDX
   "out vec4 fColor;\n"
@@ -69,7 +69,7 @@ const GLchar *vertexShaderSource =
 
 // Fragment Shader Source:
 const GLchar *fragmentShaderSource =
-  "#version 450 core\n"
+  "#version 410 core\n"
   "in vec4 fColor;\n"
   "out vec4 outColor;\n"
   "void main()\n"
@@ -95,8 +95,13 @@ int main(int argc, char *argv[])
   glfwSetErrorCallback(glfwErrorCallback);
   // We want OpenGL 3.3 Core Profile
   glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 4);
-  glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 5);
+  glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 1);
+  #ifdef __APPLE__
   glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
+  glfwWindowHint(GLFW_OPENGL_FORWARD_COMPAT, GL_TRUE);
+  #else
+  glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
+  #endif
   // Create a windowed mode window and its OpenGL context
   GLFWwindow* window = glfwCreateWindow(800, 600, "Hello Graphics", NULL, NULL);
   if (!window)
