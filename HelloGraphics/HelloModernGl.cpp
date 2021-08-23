@@ -7,6 +7,7 @@
 #include <GLFW/glfw3.h>
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
+#include <glm/gtc/type_ptr.hpp>
 
 // GL indices for vertice attributes
 constexpr unsigned int GL_VERTEX_POSITION_ATTRIBUTE_IDX=0;
@@ -268,7 +269,7 @@ int main(int argc, char *argv[])
     // activate the shaders
     glUseProgram(shaderProgram);
     // update the MVP in the currently activated shader
-    glUniformMatrix4fv(MatrixID, 1, GL_FALSE, &mvpMat[0][0]);
+    glUniformMatrix4fv(MatrixID, 1, GL_FALSE, glm::value_ptr(mvpMat));
     // draw the vertices as single triangles according to program
     glDrawArrays(GL_TRIANGLES, 0, 3);
     // unbind everything
