@@ -269,12 +269,12 @@ int main(int argc, char *argv[])
   glGenVertexArrays(1, &groundVAO); glGenBuffers(1, &groundPositionsVBO);
   VertexData myGround[6] =
   {
-    {{ -1.0f, 0.0f,  1.0f}, {1.0f, 0.2f, 0.0f, 1.0f}, {0.0f, 1.0f}},
-    {{ -1.0f, 0.0f, -1.0f}, {1.0f, 0.2f, 0.0f, 1.0f}, {0.0f, 0.0f}},
-    {{  1.0f, 0.0f, -1.0f}, {1.0f, 0.2f, 0.0f, 1.0f}, {1.0f, 0.0f}},
-    {{ -1.0f, 0.0f,  1.0f}, {1.0f, 0.2f, 0.0f, 1.0f}, {0.0f, 1.0f}},
-    {{  1.0f, 0.0f, -1.0f}, {1.0f, 0.2f, 0.0f, 1.0f}, {1.0f, 0.0f}},
-    {{  1.0f, 0.0f,  1.0f}, {1.0f, 0.0f, 0.0f, 1.0f}, {1.0f, 1.0f}}
+    {{ -1.0f, 0.0f,  1.0f}, {1.0f, 0.2f, 0.0f, 1.0f}, {0.0f, 0.0f}},
+    {{ -1.0f, 0.0f, -1.0f}, {1.0f, 0.2f, 0.0f, 1.0f}, {0.0f, 1.0f}},
+    {{  1.0f, 0.0f, -1.0f}, {1.0f, 0.2f, 0.0f, 1.0f}, {1.0f, 1.0f}},
+    {{ -1.0f, 0.0f,  1.0f}, {1.0f, 0.2f, 0.0f, 1.0f}, {0.0f, 0.0f}},
+    {{  1.0f, 0.0f, -1.0f}, {1.0f, 0.2f, 0.0f, 1.0f}, {1.0f, 1.0f}},
+    {{  1.0f, 0.0f,  1.0f}, {1.0f, 0.0f, 0.0f, 1.0f}, {1.0f, 0.0f}}
   };
   glBindVertexArray(groundVAO);
   glBindBuffer(GL_ARRAY_BUFFER, groundPositionsVBO);
