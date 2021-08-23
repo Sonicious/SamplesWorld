@@ -2,6 +2,8 @@
 #include <cstdlib>
 #include <cstdio>
 #include <iostream>
+#include <fstream>
+#include <string>
 
 #include "glad/glad.h"
 #include <GLFW/glfw3.h>
@@ -12,6 +14,27 @@
 // GL indices for vertice attributes
 constexpr unsigned int GL_VERTEX_POSITION_ATTRIBUTE_IDX=0;
 constexpr unsigned int GL_VERTEX_COLOR_ATTRIBUTE_IDX=1;
+constexpr unsigned int GL_VERTEX_TEXTURE_ATTRIBUTE_IDX = 2;
+
+std::string readFile(const char* filePath) {
+  std::string content;
+  std::ifstream fileStream(filePath, std::ios::in);
+
+  if (!fileStream.is_open()) {
+    std::cerr << "Could not read file " << filePath << std::endl << "File does not exist." << std::endl;
+    exit(EXIT_FAILURE);
+  }
+
+  std::string line = "";
+  while (!fileStream.eof())
+  {
+    std::getline(fileStream, line);
+    content.append(line + "\n");
+  }
+
+  fileStream.close();
+  return content;
+}
 
 void checkGL()
 {
@@ -20,6 +43,10 @@ void checkGL()
   {
     printf("[ERROR] %d\n", error);
     exit(EXIT_FAILURE);
+  }
+  else
+  {
+    printf("[LOG] no error so far\n");
   }
 }
 
@@ -31,6 +58,7 @@ void glfwErrorCallback(int error, const char* description)
 typedef struct {
   GLfloat position[3];
   GLfloat color[4];
+  GLfloat tex[2];
 } VertexData;
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -52,31 +80,6 @@ void framebufferSizeCallback(GLFWwindow* window, int width, int height)
     // height will be significantly larger than specified on retina displays.
     glViewport(0, 0, width, height);
 }
-
-// Vertex Shader Source:
-// input comes to "in vec3 aPos"
-// output goes to "gl_position
-const GLchar *vertexShaderSource =
-  "#version 410 core\n"
-  "layout (location = 0) in vec3 vPos;\n" // must be idx of GL_VERTEX_POSITION_ATTRIBUTE_IDX
-  "layout (location = 1) in vec4 vColor;\n" // must be idx of GL_VERTEX_COLOR_ATTRIBUTE_IDX
-  "out vec4 fColor;\n"
-  "uniform mat4 MVP;\n" // constant which must be uploaded from CPU
-  "void main()\n"
-  "{\n"
-  "   gl_Position = MVP * vec4(vPos.x, vPos.y, vPos.z, 1.0);\n"
-  "   fColor = vColor;\n"
-  "}\0";
-
-// Fragment Shader Source:
-const GLchar *fragmentShaderSource =
-  "#version 410 core\n"
-  "in vec4 fColor;\n"
-  "out vec4 outColor;\n"
-  "void main()\n"
-  "{\n"
-  "   outColor = fColor;\n"
-  "}\n\0";
 
 int main(int argc, char *argv[])
 {
@@ -131,6 +134,13 @@ int main(int argc, char *argv[])
 
 ///////////////////////////////////////////////////////////////////////////////
 // Create Shader Program:
+
+  std::string vertexShaderSourceString = readFile("shaders/VertexShader.glsl");
+  std::string fragmentShaderColorSourceString = readFile("shaders/FragmentColorShader.glsl");
+  std::string fragmentShaderTextureSourceString = readFile("shaders/FragmentTextureShader.glsl");
+  const GLchar* vertexShaderSource = vertexShaderSourceString.c_str();
+  const GLchar* fragmentShaderColorSource = fragmentShaderColorSourceString.c_str();
+  const GLchar* fragmentShaderTextureSource = fragmentShaderTextureSourceString.c_str();
   
   // Create vertex shader and load and compile source
   GLuint vertexShader;
@@ -145,55 +155,82 @@ int main(int argc, char *argv[])
     printf("Vertex Shader Compilation Failed:\n%s\n",infoLog);
     return EXIT_FAILURE;
   }
-  // Create fragment shader, load and compile
-  GLuint fragmentShader;
-  fragmentShader = glCreateShader(GL_FRAGMENT_SHADER);
-  glShaderSource(fragmentShader, 1, &fragmentShaderSource, NULL);
-  glCompileShader(fragmentShader);
+  // Create color fragment shader, load and compile
+  GLuint fragmentColorShader;
+  fragmentColorShader = glCreateShader(GL_FRAGMENT_SHADER);
+  glShaderSource(fragmentColorShader, 1, &fragmentShaderColorSource, NULL);
+  glCompileShader(fragmentColorShader);
   // check for errors in compilation process
-  glGetShaderiv(vertexShader, GL_COMPILE_STATUS, &success);
+  glGetShaderiv(fragmentColorShader, GL_COMPILE_STATUS, &success);
   if(!success)
   {
-    glGetShaderInfoLog(vertexShader, 512, NULL, infoLog);
-    printf("Fragment Shader Compilation Failed:\n%s\n",infoLog);
+    glGetShaderInfoLog(fragmentColorShader, 512, NULL, infoLog);
+    printf("Fragment Color Shader Compilation Failed:\n%s\n",infoLog);
+    return EXIT_FAILURE;
+  }
+  // Create color fragment shader, load and compile
+  GLuint fragmentTextureShader;
+  fragmentTextureShader = glCreateShader(GL_FRAGMENT_SHADER);
+  glShaderSource(fragmentTextureShader, 1, &fragmentShaderTextureSource, NULL);
+  glCompileShader(fragmentTextureShader);
+  // check for errors in compilation process
+  glGetShaderiv(fragmentTextureShader, GL_COMPILE_STATUS, &success);
+  if (!success)
+  {
+    glGetShaderInfoLog(fragmentTextureShader, 512, NULL, infoLog);
+    printf("Fragment Texture Shader Compilation Failed:\n%s\n", infoLog);
     return EXIT_FAILURE;
   }
   // Link Shaders together to a program
-  GLuint shaderProgram;
-  shaderProgram = glCreateProgram();
-  glAttachShader(shaderProgram, vertexShader);
-  glAttachShader(shaderProgram, fragmentShader);
-  glLinkProgram(shaderProgram);
-  glGetProgramiv(shaderProgram, GL_LINK_STATUS, &success);
+  GLuint triangleShaderProgram;
+  triangleShaderProgram = glCreateProgram();
+  glAttachShader(triangleShaderProgram, vertexShader);
+  glAttachShader(triangleShaderProgram, fragmentColorShader);
+  glLinkProgram(triangleShaderProgram);
+  glGetProgramiv(triangleShaderProgram, GL_LINK_STATUS, &success);
   if(!success)
   {
-      glGetProgramInfoLog(shaderProgram, 512, NULL, infoLog);
+      glGetProgramInfoLog(triangleShaderProgram, 512, NULL, infoLog);
       printf("Program Linking Failed:\n%s\n",infoLog);
       return EXIT_FAILURE;
+  }
+  // Link Shaders together to a program
+  GLuint groundShaderProgram;
+  groundShaderProgram = glCreateProgram();
+  glAttachShader(groundShaderProgram, vertexShader);
+  glAttachShader(groundShaderProgram, fragmentTextureShader);
+  glLinkProgram(groundShaderProgram);
+  glGetProgramiv(groundShaderProgram, GL_LINK_STATUS, &success);
+  if (!success)
+  {
+    glGetProgramInfoLog(groundShaderProgram, 512, NULL, infoLog);
+    printf("Problem with linking appeared:\n%s\n", infoLog);
+    return EXIT_FAILURE;
   }
 
   // delete Shaders (not needed anymore, because completely compiled and so on)
   glDeleteShader(vertexShader);
-  glDeleteShader(fragmentShader);
+  glDeleteShader(fragmentColorShader);
+  glDeleteShader(fragmentTextureShader);
 
 ///////////////////////////////////////////////////////////////////////////////
 // Create a state driven VAO Setup Vertex Data, Buffers and
 // configure Vertex Attributes
 
   // Create an bind a VAO
-  GLuint vertexArrayObject; // vertex array object
-  glGenVertexArrays(1, &vertexArrayObject);
-  glBindVertexArray(vertexArrayObject); // Bind Vertex Array
+  GLuint triangleVAO; // vertex array object
+  glGenVertexArrays(1, &triangleVAO);
+  glBindVertexArray(triangleVAO); // Bind Vertex Array
 
   // generate buffer and Array for vertices and bind and fill it
-  GLuint glPositionsVBO; // Vertex Buffer Object
-  glGenBuffers(1, &glPositionsVBO);
-  glBindBuffer(GL_ARRAY_BUFFER, glPositionsVBO);
-  VertexData myTriangle[3] = 
+  GLuint trianglePositionsVBO; // Vertex Buffer Object
+  glGenBuffers(1, &trianglePositionsVBO);
+  glBindBuffer(GL_ARRAY_BUFFER, trianglePositionsVBO);
+  VertexData myTriangle[3] =
   {
-    {{-0.8f, -0.8f, 0.0f}, {1.0f, 0.0f, 0.0f, 1.0f}},
-    {{ 0.8f, -0.8f, 0.0f}, {0.0f, 1.0f, 0.0f, 1.0f}},
-    {{ 0.0f,  0.8f, 0.0f}, {0.0f, 0.0f, 1.0f, 1.0f}}
+    {{-1.0f, 0.0f, 1.0f}, {1.0f, 0.0f, 0.0f, 1.0f}, {0.0f, 0.0f}},
+    {{ 1.0f, 0.0f,-1.0f}, {0.0f, 1.0f, 0.0f, 1.0f}, {0.0f, 0.0f}},
+    {{ 1.0f, 1.5f,-1.0f}, {0.0f, 0.0f, 1.0f, 1.0f}, {0.0f, 0.0f}}
   };
   // Upload vertex data to GPU
   glBufferData(GL_ARRAY_BUFFER, sizeof(myTriangle), myTriangle, GL_STATIC_DRAW);
@@ -208,6 +245,50 @@ int main(int argc, char *argv[])
   glBindBuffer(GL_ARRAY_BUFFER, 0);
   glBindVertexArray(0);
 
+  // The ground should be textured
+  GLuint groundTexture;
+  glActiveTexture(GL_TEXTURE0);
+  glGenTextures(1, &groundTexture);
+  glBindTexture(GL_TEXTURE_2D, groundTexture);
+
+  GLubyte textureData[] =
+  {
+    255, 255, 255, 255, 0, 0, 0, 255,
+    255, 0, 0, 255, 0, 0, 255, 255
+  };
+  GLuint textureWidth = 2, textureHeight = 2;
+  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
+  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
+  glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, textureWidth, textureHeight, 0, GL_RGBA, GL_UNSIGNED_BYTE, textureData);
+  glGenerateMipmap(GL_TEXTURE_2D);
+  glBindTexture(GL_TEXTURE_2D, 0);
+
+  GLuint groundVAO, groundPositionsVBO;
+  glGenVertexArrays(1, &groundVAO); glGenBuffers(1, &groundPositionsVBO);
+  VertexData myGround[6] =
+  {
+    {{ -1.0f, 0.0f,  1.0f}, {1.0f, 0.2f, 0.0f, 1.0f}, {0.0f, 1.0f}},
+    {{ -1.0f, 0.0f, -1.0f}, {1.0f, 0.2f, 0.0f, 1.0f}, {0.0f, 0.0f}},
+    {{  1.0f, 0.0f, -1.0f}, {1.0f, 0.2f, 0.0f, 1.0f}, {1.0f, 0.0f}},
+    {{ -1.0f, 0.0f,  1.0f}, {1.0f, 0.2f, 0.0f, 1.0f}, {0.0f, 1.0f}},
+    {{  1.0f, 0.0f, -1.0f}, {1.0f, 0.2f, 0.0f, 1.0f}, {1.0f, 0.0f}},
+    {{  1.0f, 0.0f,  1.0f}, {1.0f, 0.0f, 0.0f, 1.0f}, {1.0f, 1.0f}}
+  };
+  glBindVertexArray(groundVAO);
+  glBindBuffer(GL_ARRAY_BUFFER, groundPositionsVBO);
+  glBufferData(GL_ARRAY_BUFFER, sizeof(myGround), myGround, GL_STATIC_DRAW);
+  glEnableVertexAttribArray(GL_VERTEX_POSITION_ATTRIBUTE_IDX);
+  glVertexAttribPointer(GL_VERTEX_POSITION_ATTRIBUTE_IDX, 3, GL_FLOAT, GL_FALSE, sizeof(VertexData), (GLvoid*)offsetof(VertexData, position));
+  glEnableVertexAttribArray(GL_VERTEX_COLOR_ATTRIBUTE_IDX);
+  glVertexAttribPointer(GL_VERTEX_COLOR_ATTRIBUTE_IDX, 4, GL_FLOAT, GL_FALSE, sizeof(VertexData), (GLvoid*)offsetof(VertexData, color));
+  glEnableVertexAttribArray(GL_VERTEX_TEXTURE_ATTRIBUTE_IDX);
+  glVertexAttribPointer(GL_VERTEX_TEXTURE_ATTRIBUTE_IDX, 2, GL_FLOAT, GL_FALSE, sizeof(VertexData), (GLvoid*)offsetof(VertexData, tex));
+  glBindBuffer(GL_ARRAY_BUFFER, 0);
+  glBindVertexArray(0);
+  
+
   ///////////////////////////////////////////////////////////////////////////////
   // Projection
 
@@ -218,17 +299,23 @@ int main(int argc, char *argv[])
 
   // Camera matrix
   glm::mat4 viewMat = glm::lookAt(
-    glm::vec3(1, 1, 2), // Camera is at (1,3,2), in World Space
-    glm::vec3(0, 0, 0), // and looks at the origin
+    glm::vec3(1, 2, 4), // Camera is at (1,1,4), in World Space
+    glm::vec3(0, 1, 0), // and looks at the origin
     glm::vec3(0, 1, 0)  // Head is up (set to 0,-1,0 to look upside-down)
   );
 
   // Model matrix : an identity matrix (model will be at the origin)
-  glm::mat4 modelMat = glm::mat4(1.0f);
+  glm::mat4 triangleModelMat = glm::mat4(1.0f);
+  glm::mat4 groundModelMat = glm::scale(glm::mat4(1.0f), glm::vec3(2.0f));
   // Our ModelViewProjection : multiplication of our 3 matrices
-  glm::mat4 mvpMat = projectionMat * viewMat * modelMat; // Remember, matrix multiplication is the other way around
+  glm::mat4 triangleMvpMat = projectionMat * viewMat * triangleModelMat; // Remember, matrix multiplication is the other way around
+  glm::mat4 groundMvpMat = projectionMat * viewMat * groundModelMat;
   // Get MVP Handle from Program
-  GLuint MatrixID = glGetUniformLocation(shaderProgram, "MVP");
+  GLuint triangleMatrixID = glGetUniformLocation(triangleShaderProgram, "MVP");
+  GLuint groundMatrixID = glGetUniformLocation(groundShaderProgram, "MVP");
+  glUseProgram(groundShaderProgram);
+  GLuint bla = glGetUniformLocation(groundShaderProgram, "mytexture");
+  glUniform1i(bla, 0); //TODO
   
   ///////////////////////////////////////////////////////////////////////////////
   // Last Setup points
@@ -265,15 +352,24 @@ int main(int argc, char *argv[])
     // Clear the screen and the z Buffer
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
     // Bind the vertex array object and all its state
-    glBindVertexArray(vertexArrayObject);
+    glBindVertexArray(triangleVAO);
     // activate the shaders
-    glUseProgram(shaderProgram);
+    glUseProgram(triangleShaderProgram);
     // update the MVP in the currently activated shader
-    glUniformMatrix4fv(MatrixID, 1, GL_FALSE, glm::value_ptr(mvpMat));
+    glUniformMatrix4fv(triangleMatrixID, 1, GL_FALSE, glm::value_ptr(triangleMvpMat));
     // draw the vertices as single triangles according to program
     glDrawArrays(GL_TRIANGLES, 0, 3);
+    
+    // draw Ground
+    glBindVertexArray(groundVAO);
+    glActiveTexture(GL_TEXTURE0);
+    glBindTexture(GL_TEXTURE_2D, groundTexture);
+    glUseProgram(groundShaderProgram);
+    glUniformMatrix4fv(groundMatrixID, 1, GL_FALSE, glm::value_ptr(groundMvpMat));
+    glDrawArrays(GL_TRIANGLES, 0,6);
     // unbind everything
     glBindVertexArray(0);
+    glBindTexture(GL_TEXTURE_2D, 0);
     glUseProgram(0);
     
     // Swap front and back buffers
@@ -284,7 +380,6 @@ int main(int argc, char *argv[])
     glfwPollEvents();
   }
 
-  checkGL();
   // Cleanup
   // OpenGL is reference counted and terminated by GLFW
   glfwDestroyWindow(window);
