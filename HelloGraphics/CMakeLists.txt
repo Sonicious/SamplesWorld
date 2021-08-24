@@ -30,4 +30,4 @@ add_executable(HelloModernGl HelloModernGl.cpp shaders/VertexShader.glsl shaders
 #target_link_libraries(HelloPixelBufferInteraction glfw OpenGL::GL glad)
 #target_link_libraries(HelloTexture glfw OpenGL::GL glad)
 target_link_libraries(HelloModernGl glfw OpenGL::GL glad glm::glm)
-ADD_DEPENDENCIES ( HelloModernGl copy_shader_files )
+ADD_DEPENDENCIES ( HelloModernGl copy_shader_directory )
