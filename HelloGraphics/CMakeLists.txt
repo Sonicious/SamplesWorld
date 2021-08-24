@@ -1,12 +1,14 @@
 cmake_minimum_required(VERSION 3.20 FATAL_ERROR)
 
-project(HelloGraphics VERSION 1.0 LANGUAGES CXX)
+project(HelloGraphics VERSION 1.0 LANGUAGES CXX CUDA)
 
 set(CMAKE_CXX_STANDARD 11)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_CUDA_STANDARD 11)
+set(CMAKE_CUDA_STANDARD_REQUIRED ON)
 
 find_package(glfw3 REQUIRED)
-find_package(OpenGL REQUIRED)
+find_package(OpenGL 4.1 REQUIRED)
 find_package(glm REQUIRED)
 add_subdirectory(glad/)
 
@@ -17,17 +19,17 @@ add_custom_target(
   VERBATIM
 )
 
-#add_executable(HelloTextureDevicePointers HelloTextureDevicePointers.cu)
-#add_executable(HelloTextureSurface HelloTextureSurface.cu)
-#add_executable(HelloVerticeInteraction HelloVerticeInteraction.cu)
-#add_executable(HelloPixelBufferInteraction HelloPixelBufferInteraction.cu)
-#add_executable(HelloTexture HelloTexture.cpp)
-add_executable(HelloModernGl HelloModernGl.cpp shaders/VertexShader.glsl shaders/FragmentColorShader.glsl shaders/FragmentTextureShader.glsl)
+add_executable(HelloModernGl HelloModernGL.cpp)
+add_executable(HelloVerticeInteraction HelloVerticeInteraction.cu)
+add_executable(HelloTextureInteraction HelloTextureInteraction.cu)
+add_executable(HelloTextureInteractionSurface HelloTextureInteractionSurface.cu)
 
-#target_link_libraries(HelloTextureDevicePointers glfw OpenGL::GL glad)
-#target_link_libraries(HelloTextureSurface glfw OpenGL::GL glad)
-#target_link_libraries(HelloVerticeInteraction glfw OpenGL::GL glad)
-#target_link_libraries(HelloPixelBufferInteraction glfw OpenGL::GL glad)
-#target_link_libraries(HelloTexture glfw OpenGL::GL glad)
 target_link_libraries(HelloModernGl glfw OpenGL::GL glad glm::glm)
-ADD_DEPENDENCIES ( HelloModernGl copy_shader_directory )
+target_link_libraries(HelloVerticeInteraction glfw OpenGL::GL glad glm::glm)
+target_link_libraries(HelloTextureInteraction glfw OpenGL::GL glad glm::glm)
+target_link_libraries(HelloTextureInteractionSurface glfw OpenGL::GL glad glm::glm)
+
+add_dependencies(HelloModernGl copy_shader_directory)
+add_dependencies(HelloVerticeInteraction copy_shader_directory)
+add_dependencies(HelloTextureInteraction copy_shader_directory)
+add_dependencies(HelloTextureInteractionSurface copy_shader_directory)

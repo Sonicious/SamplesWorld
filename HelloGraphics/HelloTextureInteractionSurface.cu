@@ -9,10 +9,25 @@
 #include <glm/glm.hpp>
 #include <glm/ext.hpp>
 
+#include <cuda_runtime.h>
+#include <device_launch_parameters.h>
+#include <cuda_gl_interop.h>
+
 // GL indices for vertice attributes
 constexpr unsigned int GL_VERTEX_POSITION_ATTRIBUTE_IDX=0;
 constexpr unsigned int GL_VERTEX_COLOR_ATTRIBUTE_IDX=1;
 constexpr unsigned int GL_VERTEX_TEXTURE_ATTRIBUTE_IDX = 2;
+
+// cuda error checking function
+#define checkCuda(ans) { gpuAssert((ans), __FILE__, __LINE__); }
+inline void gpuAssert(cudaError_t code, const char* file, int line, bool abort = true)
+{
+  if (code != cudaSuccess)
+  {
+    fprintf(stderr, "GPUassert: %s %s %d\n", cudaGetErrorString(code), file, line);
+    if (abort) exit(code);
+  }
+}
 
 // function to read files for reading shader sources
 std::string readFile(const char* filePath)
@@ -79,6 +94,32 @@ void framebufferSizeCallback(GLFWwindow* window, int width, int height)
     glViewport(0, 0, width, height);
 }
 
+///////////////////////////////////////////////////////////////////////////////
+// CUDA Kernels for image:
+
+__global__ void myTextureKernel( cudaSurfaceObject_t surfObj, size_t width, size_t height, double time)
+{
+  for (unsigned int idy = blockIdx.y * blockDim.y + threadIdx.y;
+    idy < height;
+    idy += blockDim.y * gridDim.y)
+  {
+    for (unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
+      idx < width;
+      idx += blockDim.x * gridDim.x)
+    {
+      int fulltime = int(time*10)%10;
+      uchar4 localTexel;
+      surf2Dread(&localTexel, surfObj, idx, idy); // surf2Dread and surf2Dwrite difficult to find in documentation
+      //printf("(%u,%u) = (%u,%u,%u,%u)\n",idx, idy, localTexel.x, localTexel.y, localTexel.z, localTexel.w);
+      localTexel.x = 25 * fulltime;
+      localTexel.y = idx * 25 * fulltime;
+      localTexel.z = idy * 25 * fulltime;
+      localTexel.w = 255;
+      surf2Dwrite(localTexel, surfObj, idx * sizeof(uchar4), idy);
+    }
+  }
+}
+
 int main(int argc, char *argv[])
 {
   // OpenGL Status Variables:
@@ -102,7 +143,7 @@ int main(int argc, char *argv[])
   glfwWindowHint(GLFW_OPENGL_FORWARD_COMPAT, GL_TRUE);
 
   // Create a windowed mode window and its OpenGL context
-  GLFWwindow* window = glfwCreateWindow(800, 600, "Hello Modern OpenGl", NULL, NULL);
+  GLFWwindow* window = glfwCreateWindow(800, 600, "Hello Cuda Texture Surface", NULL, NULL);
   if (!window)
   {
     printf("Failed to create GLFW window!");
@@ -324,6 +365,22 @@ int main(int argc, char *argv[])
   // uncomment this call to draw in wireframe polygons.
   //glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
 
+  ///////////////////////////////////////////////////////////////////////////////
+  // Cuda Texture Interop
+
+  // Register the TextureImage to be accessed by CUDA
+  // no special flags given
+  cudaGraphicsResource_t groundTextureGraphicResource;
+  cudaArray_t groundTextureCudaArray;
+  cudaSurfaceObject_t groundTextureSurface;
+  cudaResourceDesc groundTextureResourceDesc;
+  checkCuda(cudaGraphicsGLRegisterImage(
+    &groundTextureGraphicResource,
+    groundTexture,
+    GL_TEXTURE_2D,
+    cudaGraphicsRegisterFlagsNone
+  ));
+
 ///////////////////////////////////////////////////////////////////////////////
 // Render Loop
 
@@ -338,11 +395,24 @@ int main(int argc, char *argv[])
     nbFrames++;
     if ( currentTime - lastTime >= 1.0 ){ // If last prinf() was more than 1 sec ago
         // printf and reset timer
-        sprintf(windowTitle, "Hello Modern OpenGl | %f ms/frame", 1000.0/double(nbFrames));
+        sprintf(windowTitle, "Hello Cuda Texture Surface | %f ms/frame", 1000.0/double(nbFrames));
         glfwSetWindowTitle(window, windowTitle);
         nbFrames = 0;
         lastTime += 1.0;
     }
+
+    // map ressource. Now don't interact with it via OpenGL
+    checkCuda(cudaGraphicsMapResources(1, &groundTextureGraphicResource, 0));
+    checkCuda(cudaGraphicsSubResourceGetMappedArray(&groundTextureCudaArray, groundTextureGraphicResource, 0, 0));
+    // the resource Type says which things to set. See Documentation
+    groundTextureResourceDesc.resType = cudaResourceTypeArray;
+    groundTextureResourceDesc.res.array.array = groundTextureCudaArray;
+    // Create a surface Object
+    checkCuda(cudaCreateSurfaceObject(&groundTextureSurface, &groundTextureResourceDesc));
+    // cuda Kernel here to deal with everything
+    myTextureKernel <<<dim3(1, 1), dim3(2, 2) >>> (groundTextureSurface, 2, 2, glfwGetTime());
+    // unmap ressource. Now you can do stuff with it again
+    checkCuda(cudaGraphicsUnmapResources(1, &groundTextureGraphicResource, 0));
 
     // Clear the screen and the z Buffer
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
@@ -375,6 +445,7 @@ int main(int argc, char *argv[])
   }
 
   // Cleanup
+  checkCuda(cudaDestroySurfaceObject(groundTextureSurface));
   // OpenGL is reference counted and terminated by GLFW
   glfwDestroyWindow(window);
   glfwTerminate();
